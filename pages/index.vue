@@ -156,6 +156,24 @@ const npubDisplay = computed(() => {
   }
 })
 
+const cloneSourceNpub = computed(() => {
+  if (!authStore.pubkey) return ''
+
+  try {
+    return npubEncode(authStore.pubkey)
+  } catch {
+    return ''
+  }
+})
+
+const cloneCandidateRelays = computed(() => {
+  return Array.from(new Set([
+    ...relayStore.effectiveOutboxRelays,
+    ...relayStore.effectiveInboxRelays,
+    ...relayStore.bootstrapRelays
+  ]))
+})
+
 const runFetchAll = async () => {
   if (!authStore.pubkey) return
 
@@ -1237,5 +1255,7 @@ onMounted(async () => {
         </main>
       </div>
     </div>
+
+    <NsiteCloneFab :fallback-npub="cloneSourceNpub" :candidate-relays="cloneCandidateRelays" />
   </div>
 </template>

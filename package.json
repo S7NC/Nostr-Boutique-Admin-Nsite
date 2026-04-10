@@ -8,6 +8,10 @@
     "build": "nuxt build",
     "dev": "nuxt dev --host",
     "generate": "nuxt generate",
+    "nsite:build": "npm run generate",
+    "nsite:deploy": "./tools/nsyte deploy ./.output/public --fallback /index.html --verbose",
+    "nsite:status": "./tools/nsyte status",
+    "nsite:debug": "./tools/nsyte debug",
     "preview": "nuxt preview",
     "serve": "npx serve ./.output/public",
     "postinstall": "nuxt prepare"

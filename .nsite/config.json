@@ -1,0 +1,21 @@
+{
+  "$schema": "https://nsyte.run/schemas/config.schema.json",
+  "fallback": "/index.html",
+  "publishProfile": true,
+  "publishServerList": true,
+  "publishRelayList": true,
+  "relays": [
+    "wss://relay.ditto.pub",
+    "wss://relay.damus.io",
+    "wss://relay.primal.net",
+    "wss://nos.lol"
+  ],
+  "servers": [
+    "https://blossom.primal.net",
+    "https://cdn.satellite.earth"
+  ],
+  "profile": {
+    "name": "Nostr Boutique Admin",
+    "about": "Nostr Boutique Admin template with built-in one-click nsite clone flow"
+  }
+}
