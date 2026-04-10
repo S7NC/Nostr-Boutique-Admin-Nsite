@@ -1,0 +1,25 @@
+{
+  "name": "Nuxtstack",
+  "description": "Build Nostr apps in minutes with this Nuxt framework powered by Content Wind template",
+  "license": "MIT",
+  "homepage": "",
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev --host",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "serve": "npx serve ./.output/public",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@pinia/nuxt": "^0.11.3",
+    "@tailwindcss/vite": "^4.1.17",
+    "gsap": "^3.14.2",
+    "marked": "^17.0.4",
+    "nostr-tools": "^2.23.3",
+    "nuxt": "^4.2.1",
+    "shaders": "^2.3.75",
+    "vite": "^8.0.2"
+  }
+}

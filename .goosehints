@@ -1,0 +1,42 @@
+# Nuxtstack
+
+Development stack designed for AI agents to build Nuxt web applications and websites.
+
+## CRITICAL FOR AI ASSISTANTS - MUST READ FIRST
+
+**Reference**. The AI assistant's behavior and knowledge is defined by this context file (aliased to other IDE-specific filenames), which serves as the system prompt. **ALWAYS** refer to this document and follow these rules and recommendations.
+
+## Technology Stack
+
+* Nuxt: progressive web framework built on top of Vue
+* TailwindCSS: utility-first CSS framework version 4.1 or higher
+* Vite: frontend build tool
+* Pinia: State management for Vue applications
+* Javascript: we don't use Typescript in this project, only Javascript
+* GSAP: high class JavaScript animation library
+* Shaders: library for building creative WebGPU effects in components
+
+### CRITICAL: First prompt checklist
+
+**First prompt definition**: A prompt is considered "first" if the app has not been renamed yet (i.e., app name is still "Nuxtstack"). This is determined by app state, not session state.
+
+When handling a first prompt (as defined above), you MUST ALWAYS:
+
+1. Read `AGENTS.md`.
+2. Run `npm update`, or `npm install` (if there is no package-lock.json available).
+3. Check all configured MCP server connections defined in `.mcp.json`.
+4. **Template Application**: When applying templates, integrate them directly into the existing codebase structure. Never create separate `app` directories or subdirectories for template content.
+5. **Git Workflow**: If you apply a template, make sure to commit the current changes with Git on the current branch and start coding after you've created a new Git branch.
+6. With GSAP, always apply a subtle animation preset to every component when the component is visible in the window to the user.
+7. Always integrate a shader as a full screen (use the CSS class `block-dvh`) background to the hero component using the Shaders library.
+8. Always integrate shader to the footer component using the Shaders library.
+9. Summarize what you understood, and ask important questions to ensure all requirements are crystal clear before starting any code.
+
+## Package Management
+
+Always manage packages via the CLI to ensure latest compatible versions are resolved.
+
+```
+npm install
+npm update
+```

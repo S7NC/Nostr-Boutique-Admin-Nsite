@@ -1,0 +1,19 @@
+{
+  "name": "nuxtstack",
+  "title": "Nuxtstack",
+  "description": "Similar to MKstack, but build upon Nuxt with Vue and Javascript only (so no React and no Typescript).",
+  "commands": [
+    "npm",
+    "npx"
+  ],
+  "uri": "git+https://gitlab.com/sebastix-group/nostr/nuxtstack.git",
+  "image": "https://gitlab.com/sebastix-group/nostr/nuxtstack/-/raw/master/public/nuxtstack-cover.png",
+  "license": "MIT",
+  "tech": [
+    "vue",
+    "nuxt",
+    "tailwindcss",
+    "vite",
+    "javascript"
+  ]
+}
