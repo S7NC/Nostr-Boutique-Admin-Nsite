@@ -1,5 +1,7 @@
 <script setup>
 import { useNsiteClone } from '~/composables/useNsiteClone'
+import { createBunkerSignerAdapter, createExtensionSigner, createNsecSigner } from '~/composables/useSignerAdapters'
+import * as nip19 from 'nostr-tools/nip19'
 
 const props = defineProps({
   fallbackNpub: {
@@ -13,10 +15,6 @@ const props = defineProps({
 })
 
 const isOpen = ref(false)
-const cloneWidgetReady = ref(false)
-const cloneWidgetError = ref('')
-const cloneElementTag = ref('')
-const currentUrl = ref('')
 const cloneMode = ref('choice')
 const newcomerName = ref('')
 const newcomerIdentity = ref(null)
@@ -25,6 +23,13 @@ const newcomerBusy = ref(false)
 const newcomerError = ref('')
 const newcomerSuccessUrl = ref('')
 const newcomerPublishRelays = ref([])
+const existingCloneMethod = ref('extension')
+const existingNsecInput = ref('')
+const existingBunkerInput = ref('')
+const existingCloneBusy = ref(false)
+const existingCloneError = ref('')
+const existingCloneUrl = ref('')
+const existingSignerAuthUrl = ref('')
 
 const {
   uniq,
@@ -32,11 +37,10 @@ const {
   resolveSourceNpub,
   fetchSourceManifest,
   publishProfile,
-  publishClonedManifest
+  publishClonedManifest,
+  fixedMuseNpub
 } = useNsiteClone()
 
-const NSITE_STEALTHIS_SCRIPT_ID = 'nsite-stealthis-script'
-const NSITE_STEALTHIS_SCRIPT_SRC = 'https://unpkg.com/@nsite/stealthis@0.7.0/dist/nsite-deploy.js'
 const NOSTR_OSTRICH_ANIM_URL = '/nostr-ostrich-running.gif'
 
 const resetFlowState = () => {
@@ -48,6 +52,13 @@ const resetFlowState = () => {
   newcomerError.value = ''
   newcomerSuccessUrl.value = ''
   newcomerPublishRelays.value = []
+  existingCloneMethod.value = 'extension'
+  existingNsecInput.value = ''
+  existingBunkerInput.value = ''
+  existingCloneBusy.value = false
+  existingCloneError.value = ''
+  existingCloneUrl.value = ''
+  existingSignerAuthUrl.value = ''
 }
 
 const closeModal = () => {
@@ -72,15 +83,7 @@ const copyText = async (value) => {
 
 const startExistingFlow = async () => {
   cloneMode.value = 'existing'
-  newcomerError.value = ''
-
-  try {
-    await loadCloneWidgetScript()
-    cloneWidgetError.value = ''
-  } catch (error) {
-    cloneWidgetError.value = error.message || 'Failed to load clone tool.'
-    console.error('[nsite-clone] failed to load clone tool', error)
-  }
+  existingCloneError.value = ''
 }
 
 const startNewFlow = () => {
@@ -168,57 +171,76 @@ const publishAndCloneForNewcomer = async () => {
   }
 }
 
-const resolveCloneTag = () => {
-  if (!process.client) return ''
-  if (window.customElements?.get('steal-this')) return 'steal-this'
-  if (window.customElements?.get('nsite-deploy')) return 'nsite-deploy'
-  return ''
-}
-
-const loadCloneWidgetScript = async () => {
-  if (!process.client) return
-
-  const availableTag = resolveCloneTag()
-  if (availableTag) {
-    cloneElementTag.value = availableTag
-    cloneWidgetReady.value = true
-    return
-  }
-
-  const existing = document.getElementById(NSITE_STEALTHIS_SCRIPT_ID)
-  if (existing) {
-    await new Promise((resolve, reject) => {
-      existing.addEventListener('load', resolve, { once: true })
-      existing.addEventListener('error', reject, { once: true })
-    })
-    cloneElementTag.value = resolveCloneTag()
-    cloneWidgetReady.value = !!cloneElementTag.value
-    return
-  }
-
-  await new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.id = NSITE_STEALTHIS_SCRIPT_ID
-    script.src = NSITE_STEALTHIS_SCRIPT_SRC
-    script.async = true
-    script.addEventListener('load', resolve, { once: true })
-    script.addEventListener('error', reject, { once: true })
-    document.head.appendChild(script)
+const publishCloneWithSigner = async (signer, pubkey) => {
+  const candidateRelays = getCandidateRelays()
+  const sourceNpub = resolveSourceNpub({
+    hostname: process.client ? window.location.hostname : '',
+    fallbackNpub: props.fallbackNpub
   })
 
-  cloneElementTag.value = resolveCloneTag()
-  cloneWidgetReady.value = !!cloneElementTag.value
+  if (!sourceNpub) {
+    throw new Error('Could not resolve source nsite npub for cloning.')
+  }
+
+  const source = await fetchSourceManifest({
+    sourceNpub,
+    relays: candidateRelays
+  })
+
+  const publishRelays = source.manifestRelays.length > 0
+    ? source.manifestRelays
+    : candidateRelays
+
+  await publishClonedManifest({
+    signer,
+    pubkey,
+    sourceManifest: source.manifest,
+    sourcePubkey: source.sourcePubkey,
+    relays: publishRelays
+  })
+
+  existingCloneUrl.value = `https://${nip19.npubEncode(pubkey)}.nsite.lol/`
 }
 
-onMounted(() => {
-  currentUrl.value = process.client ? window.location.href : ''
-})
+const publishExistingClone = async () => {
+  existingCloneError.value = ''
+  existingSignerAuthUrl.value = ''
+
+  let signer = null
+  let pubkey = ''
+
+  try {
+    existingCloneBusy.value = true
+
+    if (existingCloneMethod.value === 'extension') {
+      signer = createExtensionSigner(window.nostr)
+      pubkey = await signer.getPublicKey()
+    } else if (existingCloneMethod.value === 'nsec') {
+      signer = createNsecSigner(existingNsecInput.value)
+      pubkey = await signer.getPublicKey()
+    } else {
+      signer = await createBunkerSignerAdapter(existingBunkerInput.value, (url) => {
+        existingSignerAuthUrl.value = url
+      })
+      pubkey = await signer.getPublicKey()
+    }
+
+    await publishCloneWithSigner(signer, pubkey)
+    cloneMode.value = 'existing-success'
+  } catch (error) {
+    existingCloneError.value = error.message || 'Failed to clone this nsite with your signer.'
+    console.error('[nsite-clone] existing clone failed', error)
+  } finally {
+    if (signer?.close) {
+      await signer.close()
+    }
+    existingCloneBusy.value = false
+  }
+}
+
 </script>
 
 <template>
-  <steal-this style="display: none" aria-hidden="true" />
-  <nsite-deploy style="display: none" aria-hidden="true" />
-
   <button
     class="fixed bottom-6 right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full border border-violet-300 bg-gradient-to-br from-violet-500 via-fuchsia-500 to-purple-700 shadow-[0_12px_30px_rgba(168,85,247,0.45)] transition hover:scale-[1.02] hover:shadow-[0_16px_34px_rgba(168,85,247,0.6)]"
     @click="isOpen = true"
@@ -319,33 +341,82 @@ onMounted(() => {
         </a>
       </div>
 
-      <div v-else class="mt-5 rounded-xl border border-violet-300/40 bg-violet-500/10 p-4">
-        <steal-this
-          v-if="cloneWidgetReady && cloneElementTag === 'steal-this'"
-          button-text="Clone this Nsite to my own Npub !"
-          stat-text="%s npubs cloned this nsite"
-        />
+      <div v-else-if="cloneMode === 'existing'" class="mt-5 rounded-xl border border-violet-300/40 bg-violet-500/10 p-4">
+        <p class="text-sm text-[var(--muted)]">This path now uses the built-in clone publisher so the `muse` attribution always stays fixed to <span class="font-mono">{{ fixedMuseNpub }}</span>.</p>
 
-        <nsite-deploy
-          v-else-if="cloneWidgetReady && cloneElementTag === 'nsite-deploy'"
-          label="Clone this Nsite to my own Npub !"
-        />
+        <div class="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-white/60 p-1 text-xs">
+          <button
+            class="rounded-lg border px-2 py-2 font-medium"
+            :class="existingCloneMethod === 'extension' ? 'border-violet-300 bg-violet-600 text-white' : 'border-[var(--line)] bg-white text-[var(--ink-1)]'"
+            @click="existingCloneMethod = 'extension'"
+          >
+            Extension
+          </button>
+          <button
+            class="rounded-lg border px-2 py-2 font-medium"
+            :class="existingCloneMethod === 'bunker' ? 'border-violet-300 bg-violet-600 text-white' : 'border-[var(--line)] bg-white text-[var(--ink-1)]'"
+            @click="existingCloneMethod = 'bunker'"
+          >
+            Bunker
+          </button>
+          <button
+            class="rounded-lg border px-2 py-2 font-medium"
+            :class="existingCloneMethod === 'nsec' ? 'border-violet-300 bg-violet-600 text-white' : 'border-[var(--line)] bg-white text-[var(--ink-1)]'"
+            @click="existingCloneMethod = 'nsec'"
+          >
+            Nsec
+          </button>
+        </div>
+
+        <div v-if="existingCloneMethod === 'extension'" class="mt-4 text-sm text-[var(--muted)]">
+          Use your browser signer to publish the clone manifest.
+        </div>
+
+        <div v-else-if="existingCloneMethod === 'bunker'" class="mt-4 space-y-2">
+          <input
+            v-model="existingBunkerInput"
+            type="text"
+            placeholder="bunker://... or nostrconnect://..."
+            class="w-full rounded-lg border border-[var(--line)] bg-white/95 px-3 py-2 text-sm text-black"
+          >
+          <p v-if="existingSignerAuthUrl" class="text-xs text-[var(--muted)] break-all">Approve signer connection: {{ existingSignerAuthUrl }}</p>
+        </div>
+
+        <div v-else class="mt-4 space-y-2">
+          <input
+            v-model="existingNsecInput"
+            type="password"
+            placeholder="nsec1..."
+            class="w-full rounded-lg border border-[var(--line)] bg-white/95 px-3 py-2 text-sm text-black"
+          >
+        </div>
 
         <button
-          v-else
-          class="rounded-lg border border-violet-300 bg-violet-500 px-4 py-2 text-sm font-semibold text-white"
-          disabled
+          class="mt-4 rounded-lg border border-violet-300 bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          :disabled="existingCloneBusy"
+          @click="publishExistingClone"
         >
-          Loading clone action...
+          {{ existingCloneBusy ? 'Cloning with your signer...' : 'Clone this Nsite to my own Npub !' }}
         </button>
 
-        <p v-if="cloneWidgetError" class="mt-2 text-xs text-red-500">
-          {{ cloneWidgetError }}
-        </p>
+        <p v-if="existingCloneError" class="mt-2 text-xs text-red-500">{{ existingCloneError }}</p>
       </div>
 
-      <p v-if="newcomerError" class="mt-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-        {{ newcomerError }}
+      <div v-else class="mt-5 rounded-xl border border-emerald-300/50 bg-emerald-500/10 p-4">
+        <p class="font-semibold text-emerald-200">Your clone was published with the fixed `muse` attribution tag intact.</p>
+        <p class="mt-2 text-xs text-[var(--muted)]">Clone URL: <span class="font-mono break-all">{{ existingCloneUrl }}</span></p>
+        <a
+          :href="existingCloneUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="mt-3 inline-flex rounded-lg border border-emerald-300 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white"
+        >
+          Open my cloned Nsite
+        </a>
+      </div>
+
+      <p v-if="newcomerError || existingCloneError" class="mt-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+        {{ newcomerError || existingCloneError }}
       </p>
 
       <div class="mt-5 flex justify-end gap-2">
@@ -363,31 +434,3 @@ onMounted(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-:deep(steal-this::part(trigger)) {
-  border: 1px solid #d8b4fe;
-  background: linear-gradient(135deg, #a855f7 0%, #d946ef 45%, #6d28d9 100%);
-  color: #ffffff;
-  border-radius: 9999px;
-  padding: 0.8rem 1.2rem;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  box-shadow: 0 12px 30px rgba(168, 85, 247, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-}
-
-:deep(nsite-deploy::part(trigger)) {
-  border: 1px solid #d8b4fe;
-  background: linear-gradient(135deg, #a855f7 0%, #d946ef 45%, #6d28d9 100%);
-  color: #ffffff;
-  border-radius: 9999px;
-  padding: 0.8rem 1.2rem;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  box-shadow: 0 12px 30px rgba(168, 85, 247, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
-}
-
-:deep(steal-this::part(trigger):hover) {
-  filter: saturate(1.05) brightness(1.05);
-}
-</style>

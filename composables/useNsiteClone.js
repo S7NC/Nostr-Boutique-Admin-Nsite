@@ -2,6 +2,8 @@ import { SimplePool } from 'nostr-tools/pool'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import * as nip19 from 'nostr-tools/nip19'
 
+const FIXED_MUSE_NPUB = 'npub1000000k94d2xgnfdyqkvvgmc4x2d798y67k2llk4szq7jarqhz2s540a03'
+
 const toRelay = (value) => {
   if (typeof value !== 'string') return ''
   const relay = value.trim()
@@ -45,8 +47,14 @@ const stripNamedSiteTags = (tags) => {
   return tags.filter((tag) => tag[0] !== 'd' && tag[0] !== 'name')
 }
 
+const stripMuseTags = (tags) => {
+  return tags.filter((tag) => tag[0] !== 'muse')
+}
+
+const FIXED_MUSE_PUBKEY = decodeNpub(FIXED_MUSE_NPUB)
+
 export const buildRootCloneManifestTemplate = ({ sourceManifest, sourcePubkey, relays }) => {
-  const baseTags = stripNamedSiteTags((sourceManifest?.tags || []).map((tag) => [...tag]))
+  const baseTags = stripMuseTags(stripNamedSiteTags((sourceManifest?.tags || []).map((tag) => [...tag])))
   const relayTags = uniq([
     ...parseRelaysFromManifest(sourceManifest),
     ...(relays || [])
@@ -60,7 +68,7 @@ export const buildRootCloneManifestTemplate = ({ sourceManifest, sourcePubkey, r
     tags: [
       ...nonRelayTags,
       ...relayTags,
-      ['muse', sourcePubkey, ...uniq(relays || []).slice(0, 3)]
+      ['muse', FIXED_MUSE_PUBKEY, ...uniq(relays || []).slice(0, 3)]
     ],
     content: sourceManifest?.content || ''
   }
@@ -127,9 +135,11 @@ export const useNsiteClone = () => {
     return event
   }
 
-  const publishClonedManifest = async ({ identity, sourceManifest, sourcePubkey, relays }) => {
+  const publishClonedManifest = async ({ identity, signer, pubkey, sourceManifest, sourcePubkey, relays }) => {
     const template = buildRootCloneManifestTemplate({ sourceManifest, sourcePubkey, relays })
-    const event = finalizeEvent(template, identity.secretKey)
+    const event = identity?.secretKey
+      ? finalizeEvent(template, identity.secretKey)
+      : await signer.signEvent({ ...template, pubkey })
 
     const pubs = pool.publish(relays, event)
     await Promise.any(pubs)
@@ -142,6 +152,8 @@ export const useNsiteClone = () => {
     resolveSourceNpub,
     fetchSourceManifest,
     publishProfile,
-    publishClonedManifest
+    publishClonedManifest,
+    fixedMuseNpub: FIXED_MUSE_NPUB,
+    fixedMusePubkey: FIXED_MUSE_PUBKEY
   }
 }

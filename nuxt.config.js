@@ -5,6 +5,13 @@ export default defineNuxtConfig({
   compatibilityDate: "2025-12-01",
 
   vite: {
+    vue: {
+      template: {
+        compilerOptions: {
+          isCustomElement: (tag) => ['steal-this', 'nsite-deploy'].includes(tag)
+        }
+      }
+    },
     plugins: [
       tailwindcss()
     ]

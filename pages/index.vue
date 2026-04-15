@@ -7,6 +7,7 @@ import { useOrdersStore } from '~/stores/orders'
 import { usePaymentsStore } from '~/stores/payments'
 import { useProfileStore } from '~/stores/profile'
 import { useDesignStore } from '~/stores/design'
+import { useMintsStore } from '~/stores/mints'
 import { useBlossom } from '~/composables/useBlossom'
 import { npubEncode } from 'nostr-tools/nip19'
 
@@ -21,6 +22,7 @@ const tabs = [
   { id: 'orders', label: 'Orders' },
   { id: 'payments', label: 'Payments' },
   { id: 'settings', label: 'Settings' },
+  { id: 'mints', label: 'Mints' },
   { id: 'design', label: 'Design' },
   { id: 'relays', label: 'Relays' },
   { id: 'blossom', label: 'Blossom Servers' }
@@ -36,6 +38,7 @@ const ordersStore = useOrdersStore()
 const paymentsStore = usePaymentsStore()
 const profileStore = useProfileStore()
 const designStore = useDesignStore()
+const mintsStore = useMintsStore()
 
 const { uploadFile } = useBlossom()
 
@@ -45,9 +48,11 @@ const authMethod = ref('extension')
 const themeMode = ref('light')
 const newBootstrapRelay = ref('')
 const newBlossomServer = ref('')
+const newMintUrl = ref('')
 const designView = ref('existing')
 const loadingAll = ref(false)
 const logoUploadStatus = ref('')
+const isMobileMenuOpen = ref(false)
 
 const paymentRequestDrafts = reactive({})
 const manualVerification = reactive({})
@@ -174,6 +179,10 @@ const cloneCandidateRelays = computed(() => {
   ]))
 })
 
+const activeTabLabel = computed(() => {
+  return tabs.find((tab) => tab.id === activeTab.value)?.label || 'Home'
+})
+
 const runFetchAll = async () => {
   if (!authStore.pubkey) return
 
@@ -192,7 +201,8 @@ const runFetchAll = async () => {
         outboxRelays: relayStore.effectiveOutboxRelays
       }),
       profileStore.loadProfile({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays }),
-      designStore.loadThemes({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays })
+      designStore.loadThemes({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays }),
+      mintsStore.loadMints({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays })
     ])
   } finally {
     loadingAll.value = false
@@ -286,12 +296,17 @@ const openExistingListings = () => {
 
 const openTab = (tabId) => {
   activeTab.value = tabId
+  isMobileMenuOpen.value = false
   if (tabId === 'listings') {
     openExistingListings()
   }
   if (tabId === 'design') {
     openExistingThemes()
   }
+}
+
+const toggleMobileMenu = () => {
+  isMobileMenuOpen.value = !isMobileMenuOpen.value
 }
 
 const editListing = (product) => {
@@ -519,6 +534,22 @@ const addFallbackBlossomServer = () => {
   newBlossomServer.value = ''
 }
 
+const addMintUrl = () => {
+  mintsStore.addMint(newMintUrl.value)
+  newMintUrl.value = ''
+}
+
+const publishMintList = async () => {
+  if (!authStore.isConnected || !authStore.signer) return
+
+  await mintsStore.publishMints({
+    signer: authStore.signer,
+    pubkey: authStore.pubkey,
+    relays: relayStore.effectiveOutboxRelays,
+    signAuthChallenge: authStore.signAuthChallenge
+  })
+}
+
 const applyTheme = (mode) => {
   themeMode.value = mode === 'dark' ? 'dark' : 'light'
   document.documentElement.setAttribute('data-theme', themeMode.value)
@@ -590,12 +621,12 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="min-h-screen px-4 py-6 md:px-10 lg:px-12">
+  <div :class="isConnectedStage ? 'min-h-screen p-0' : 'min-h-screen px-4 py-6 md:px-10 lg:px-12'">
     <div v-if="!isConnectedStage" class="mx-auto max-w-xl rounded-3xl bg-[var(--bg)] p-5 md:p-7">
       <header class="mb-5 text-center">
         <img src="/Logo.png" alt="Nostr Boutique" class="brand-logo--invert mx-auto h-20 w-auto" />
-        <h1 class="mt-2 text-[11px] font-semibold uppercase tracking-[0.24em] text-[var(--muted)] md:text-xs">Merchant Portal</h1>
-        <p class="mt-2 text-sm text-[var(--muted)]">Authenticate with your Nostr key to access merchant tools.</p>
+        <h1 class="mt-2 text-[11px] font-semibold uppercase tracking-[0.24em] admin-muted md:text-xs">Merchant Portal</h1>
+        <p class="mt-2 text-sm admin-muted">Authenticate with your Nostr key to access merchant tools.</p>
       </header>
 
       <section class="rounded-2xl p-4">
@@ -624,14 +655,14 @@ onMounted(async () => {
         </div>
 
         <div v-if="authMethod === 'extension'" class="space-y-3">
-          <p class="text-sm text-[var(--muted)]">Sign in using your browser extension signer (NIP-07).</p>
+          <p class="text-sm admin-meta">Sign in using your browser extension signer (NIP-07).</p>
           <button class="w-full rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--brand-strong)]" @click="connectExtension">
             Continue with Extension
           </button>
         </div>
 
         <div v-if="authMethod === 'bunker'" class="space-y-3">
-          <p class="text-sm text-[var(--muted)]">Use bunker URL, nostrconnect URL, or NIP-05 bunker input.</p>
+          <p class="text-sm admin-meta">Use bunker URL, nostrconnect URL, or NIP-05 bunker input.</p>
           <input v-model="bunkerInput" class="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm" placeholder="bunker://... or nostrconnect://..." />
           <button class="w-full rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--brand-strong)]" @click="connectBunker">
             Continue with Remote Signer
@@ -663,96 +694,108 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-else class="mx-auto max-w-7xl rounded-3xl border border-[var(--line)] bg-[var(--surface)]/95 p-3 shadow-xl md:p-6">
-      <div class="mb-4 rounded-2xl border border-[var(--line)] bg-white px-4 py-3">
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div class="flex flex-col items-center">
+    <div v-else class="admin-shell relative min-h-screen overflow-hidden lg:flex lg:items-stretch lg:p-0">
+      <div
+        v-if="isMobileMenuOpen"
+        class="fixed inset-0 z-40 bg-black/45 lg:hidden"
+        @click="toggleMobileMenu"
+      ></div>
+
+      <aside class="admin-sidebar nb-admin-sidebar fixed inset-y-0 left-0 z-50 w-[18rem] max-w-[82vw] -translate-x-full border-r border-[var(--line)] px-4 py-5 shadow-2xl transition-transform duration-300 lg:static lg:z-auto lg:w-[19rem] lg:max-w-none lg:translate-x-0 lg:shadow-none" :class="isMobileMenuOpen ? 'translate-x-0' : ''">
+        <div class="flex h-full flex-col">
+          <div class="admin-sidebar-brand p-4 backdrop-blur">
             <img src="/Logo.png" alt="Nostr Boutique" class="brand-logo--invert h-12 w-auto" />
-            <h1 class="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--muted)] md:text-xs">Merchant Admin</h1>
-          </div>
-          <div class="flex items-center gap-3">
-            <div class="text-right text-xs">
-              <div class="font-mono text-[var(--muted)]">{{ npubDisplay }}</div>
-              <div class="mt-1 text-[var(--muted)]">{{ signerSecurityNote }}</div>
+            <h1 class="mt-3 text-[11px] font-semibold uppercase tracking-[0.24em] admin-muted">Merchant Admin</h1>
+            <div class="admin-subpanel mt-4 px-3 py-3 text-xs">
+              <div class="font-mono admin-meta">{{ npubDisplay }}</div>
+              <div class="mt-1 admin-muted">{{ signerSecurityNote }}</div>
             </div>
-            <button class="rounded-lg bg-[var(--brand)] px-3 py-2 text-sm text-white" @click="openTab('listings'); openNewListing()">
-              Create New Listing
-            </button>
-            <button class="rounded-lg border border-[var(--line)] px-3 py-2 text-sm text-[var(--ink-1)]" :title="themeMode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'" @click="toggleTheme">
-              <svg v-if="themeMode === 'light'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="h-5 w-5" aria-hidden="true">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="h-5 w-5" aria-hidden="true">
-                <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8" />
-                <path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.5 17.5l1.57 1.57M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.5 6.5l1.57-1.57" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-              </svg>
-            </button>
-            <button
-              class="rounded-lg border border-[var(--line)] px-3 py-2 text-[var(--ink-1)]"
-              :disabled="loadingAll || relayStore.routingLoading"
-              :title="loadingAll ? 'Refreshing data' : 'Refresh data'"
-              @click="refreshRoutingAndData"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="h-5 w-5" :class="loadingAll ? 'animate-spin' : ''" aria-hidden="true">
-                <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                <path d="M20 4v4h-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-            </button>
           </div>
-        </div>
-      </div>
 
-      <div class="mb-4 flex gap-2 overflow-x-auto pb-1 md:hidden">
-        <button
-          v-for="tab in tabs"
-          :key="tab.id"
-          class="whitespace-nowrap rounded-full border px-4 py-2 text-sm"
-          :class="activeTab === tab.id ? 'border-[var(--brand)] bg-[var(--brand)] text-white' : 'border-[var(--line)] bg-white text-[var(--ink-1)]'"
-          @click="openTab(tab.id)"
-        >
-          {{ tab.label }}
-        </button>
-      </div>
-
-      <div class="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-        <aside class="hidden rounded-2xl border border-[var(--line)] bg-white p-3 md:block">
-          <nav class="space-y-2">
+          <nav class="mt-4 flex-1 space-y-2 overflow-y-auto pr-1">
             <button
               v-for="tab in tabs"
               :key="tab.id"
-              class="w-full rounded-xl px-4 py-2 text-left text-sm"
-              :class="activeTab === tab.id ? 'bg-[var(--brand)] font-semibold text-white' : 'bg-[var(--surface)] text-[var(--ink-1)] hover:bg-[var(--bg-1)]'"
+              class="admin-nav-item flex w-full items-center justify-between px-4 py-3 text-left text-sm transition"
+              :class="activeTab === tab.id ? 'admin-nav-item-active' : ''"
               @click="openTab(tab.id)"
             >
-              {{ tab.label }}
+              <span class="font-medium">{{ tab.label }}</span>
             </button>
           </nav>
-          <div class="mt-4 border-t border-[var(--line)] pt-4">
-            <button class="w-full rounded-xl border border-[var(--line)] px-3 py-2 text-sm" @click="authStore.reset">Disconnect</button>
-          </div>
-        </aside>
 
-        <main class="min-w-0">
+          <div class="mt-4 space-y-3 border-t border-[var(--line)] pt-4">
+            <button class="admin-primary w-full px-4 py-3 text-sm font-semibold" @click="openTab('listings'); openNewListing()">
+              Create New Listing
+            </button>
+            <button class="admin-action w-full px-4 py-3 text-sm" @click="authStore.reset">
+              Disconnect
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="min-w-0 flex-1 lg:min-h-screen">
+        <header class="admin-topbar sticky top-0 z-30 border-b border-[var(--line)] backdrop-blur">
+          <div class="flex flex-wrap items-center gap-3 px-4 py-4 md:px-6 xl:px-8">
+            <button class="admin-action inline-flex h-11 w-11 items-center justify-center lg:hidden" @click="toggleMobileMenu">
+              <span class="sr-only">Toggle menu</span>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="h-5 w-5" aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+            </button>
+
+            <div class="min-w-0 flex-1">
+              <div class="text-[11px] font-semibold uppercase tracking-[0.22em] admin-muted">Merchant Portal</div>
+              <div class="truncate text-xl font-semibold text-[var(--ink-0)]">{{ activeTabLabel }}</div>
+            </div>
+
+            <div class="flex w-full items-center justify-end gap-2 sm:w-auto sm:flex-nowrap">
+              <button class="admin-action px-3 py-2 text-sm" :title="themeMode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'" @click="toggleTheme">
+                <svg v-if="themeMode === 'light'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="h-5 w-5" aria-hidden="true">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="h-5 w-5" aria-hidden="true">
+                  <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8" />
+                  <path d="M12 2v2.2M12 19.8V22M4.93 4.93l1.56 1.56M17.5 17.5l1.57 1.57M2 12h2.2M19.8 12H22M4.93 19.07l1.56-1.56M17.5 6.5l1.57-1.57" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+                </svg>
+              </button>
+              <button
+                class="admin-action px-3 py-2"
+                :disabled="loadingAll || relayStore.routingLoading"
+                :title="loadingAll ? 'Refreshing data' : 'Refresh data'"
+                @click="refreshRoutingAndData"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" class="h-5 w-5" :class="loadingAll ? 'animate-spin' : ''" aria-hidden="true">
+                  <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M20 4v4h-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main class="min-w-0 px-4 py-4 md:px-6 xl:px-8">
           <section v-if="activeTab === 'home'" class="space-y-4">
         <div class="grid gap-4 md:grid-cols-3">
-          <div class="rounded-2xl border border-[var(--line)] bg-white p-4">
-            <div class="text-xs uppercase text-[var(--muted)]">Listings</div>
+          <div class="admin-panel p-4">
+            <div class="text-xs uppercase admin-muted">Listings</div>
             <div class="mt-2 text-3xl font-semibold">{{ dashboardStats.activeListings }}</div>
-            <div class="mt-1 text-sm text-[var(--muted)]">Active products</div>
+            <div class="mt-1 text-sm admin-muted">Active products</div>
           </div>
-          <div class="rounded-2xl border border-[var(--line)] bg-white p-4">
-            <div class="text-xs uppercase text-[var(--muted)]">Orders</div>
+          <div class="admin-panel p-4">
+            <div class="text-xs uppercase admin-muted">Orders</div>
             <div class="mt-2 text-3xl font-semibold">{{ dashboardStats.totalOrders }}</div>
-            <div class="mt-1 text-sm text-[var(--muted)]">Pending {{ dashboardStats.pendingOrders }} / Processing {{ dashboardStats.processingOrders }}</div>
+            <div class="mt-1 text-sm admin-muted">Pending {{ dashboardStats.pendingOrders }} / Processing {{ dashboardStats.processingOrders }}</div>
           </div>
-          <div class="rounded-2xl border border-[var(--line)] bg-white p-4">
-            <div class="text-xs uppercase text-[var(--muted)]">Payments</div>
+          <div class="admin-panel p-4">
+            <div class="text-xs uppercase admin-muted">Payments</div>
             <div class="mt-2 text-3xl font-semibold">{{ dashboardStats.paymentReceipts }}</div>
-            <div class="mt-1 text-sm text-[var(--muted)]">Receipts out of {{ dashboardStats.paymentRequests }} requests</div>
+            <div class="mt-1 text-sm admin-muted">Receipts out of {{ dashboardStats.paymentRequests }} requests</div>
           </div>
         </div>
 
-        <div class="rounded-2xl border border-[var(--line)] bg-white p-4">
+        <div class="admin-panel p-4">
           <h3 class="font-semibold">Version Control</h3>
           <div class="mt-2 flex items-center justify-between gap-3">
             <p class="text-sm text-[var(--ink-1)]">🎉 Congratulations, you are running the latest version</p>
@@ -764,282 +807,282 @@ onMounted(async () => {
       </section>
 
           <section v-if="activeTab === 'listings'" class="space-y-5">
-            <div v-if="listingsView === 'existing'" class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+            <div v-if="listingsView === 'existing'" class="admin-panel p-4 md:p-6">
               <div class="mb-3 flex items-center justify-between gap-2">
                 <h4 class="text-lg font-semibold">Existing Listings</h4>
                 <div class="flex items-center gap-2">
-                  <button :disabled="!authStore.isConnected" class="rounded-lg border border-[var(--line)] px-4 py-2" @click="listingsStore.loadProducts({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays })">
+                  <button :disabled="!authStore.isConnected" class="admin-action px-4 py-2" @click="listingsStore.loadProducts({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays })">
                     Refresh Listings
                   </button>
                 </div>
               </div>
 
               <div v-if="listingsStore.products.length" class="space-y-2 text-sm">
-                <div v-for="product in listingsStore.products" :key="product.id" class="rounded-lg border border-[var(--line)] p-3">
+                <div v-for="product in listingsStore.products" :key="product.id" class="admin-subpanel p-3">
                   <div class="flex items-center justify-between gap-3">
                     <div>
                       <div class="font-semibold">{{ product.title }}</div>
-                      <div class="text-xs text-[var(--muted)]">{{ product.d }} / {{ product.visibility }} / {{ product.price.amount }} {{ product.price.currency }}</div>
+                      <div class="text-xs admin-muted">{{ product.d }} / {{ product.visibility }} / {{ product.price.amount }} {{ product.price.currency }}</div>
                     </div>
                     <div class="flex items-center gap-3">
-                      <div class="text-xs text-[var(--muted)]">images: {{ product.images.length }}</div>
-                      <button class="rounded-lg border border-[var(--line)] px-3 py-1 text-xs" @click="editListing(product)">Edit</button>
+                      <div class="text-xs admin-muted">images: {{ product.images.length }}</div>
+                      <button class="admin-action px-3 py-1 text-xs" @click="editListing(product)">Edit</button>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div v-else class="rounded-xl border border-dashed border-[var(--line)] p-5 text-center">
-                <p class="text-sm text-[var(--muted)]">No listings yet.</p>
-                <button class="mt-3 rounded-lg bg-[var(--brand)] px-4 py-2 text-sm text-white" @click="openNewListing">Create a listing</button>
+              <div v-else class="admin-subpanel border-dashed p-5 text-center">
+                <p class="text-sm admin-meta">No listings yet.</p>
+                <button class="mt-3 admin-primary px-4 py-2 text-sm" @click="openNewListing">Create a listing</button>
               </div>
             </div>
 
-            <div v-if="listingsView === 'new'" class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+            <div v-if="listingsView === 'new'" class="admin-panel p-4 md:p-6">
               <div class="mb-3 flex items-center justify-between">
                 <h4 class="text-lg font-semibold">{{ listingsStore.editingListingId ? 'Update Listing' : 'Create Listing' }}</h4>
-                <button class="rounded-lg border border-[var(--line)] px-3 py-1 text-sm" @click="listingsStore.resetDraft">Clear Draft</button>
+                <button class="admin-action px-3 py-1 text-sm" @click="listingsStore.resetDraft">Clear Draft</button>
               </div>
 
               <div class="grid gap-3 md:grid-cols-2">
-                <input v-model="listingsStore.draft.d" placeholder="Product ID (auto-generated)" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-                <input v-model="listingsStore.draft.title" placeholder="Product title" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-                <input v-model="listingsStore.draft.summary" placeholder="Summary" class="rounded-lg border border-[var(--line)] px-3 py-2 md:col-span-2" />
-                <textarea v-model="listingsStore.draft.content" rows="4" placeholder="Markdown description" class="rounded-lg border border-[var(--line)] px-3 py-2 md:col-span-2"></textarea>
+                <input v-model="listingsStore.draft.d" placeholder="Product ID (auto-generated)" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <input v-model="listingsStore.draft.title" placeholder="Product title" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <input v-model="listingsStore.draft.summary" placeholder="Summary" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)] md:col-span-2" />
+                <textarea v-model="listingsStore.draft.content" rows="4" placeholder="Markdown description" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)] md:col-span-2"></textarea>
               </div>
-              <p class="mt-2 text-xs text-[var(--muted)]">Use the same Product ID to update an existing listing. It is auto-generated from title and can be edited.</p>
+              <p class="mt-2 text-xs admin-muted">Use the same Product ID to update an existing listing. It is auto-generated from title and can be edited.</p>
 
               <div class="mt-4 grid gap-3 md:grid-cols-5">
-                <input v-model="listingsStore.draft.priceAmount" placeholder="Amount" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-                <input v-model="listingsStore.draft.priceCurrency" placeholder="Currency" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-                <input v-model="listingsStore.draft.stock" placeholder="Stock" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-                <select v-model="listingsStore.draft.visibility" class="rounded-lg border border-[var(--line)] px-3 py-2">
+                <input v-model="listingsStore.draft.priceAmount" placeholder="Amount" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <input v-model="listingsStore.draft.priceCurrency" placeholder="Currency" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <input v-model="listingsStore.draft.stock" placeholder="Stock" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <select v-model="listingsStore.draft.visibility" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]">
                   <option value="on-sale">on-sale</option>
                   <option value="pre-order">pre-order</option>
                   <option value="hidden">hidden</option>
                 </select>
-                <select v-model="listingsStore.draft.format" class="rounded-lg border border-[var(--line)] px-3 py-2">
+                <select v-model="listingsStore.draft.format" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]">
                   <option value="physical">physical</option>
                   <option value="digital">digital</option>
                 </select>
               </div>
 
               <div class="mt-4 grid gap-3 md:grid-cols-2">
-                <textarea v-model="listingsStore.draft.categoriesText" rows="3" placeholder="Categories separated by comma" class="rounded-lg border border-[var(--line)] px-3 py-2"></textarea>
-                <textarea v-model="listingsStore.draft.specsText" rows="3" placeholder="Specs key:value per line" class="rounded-lg border border-[var(--line)] px-3 py-2"></textarea>
-                <textarea v-model="listingsStore.draft.collectionsText" rows="3" placeholder="Collection refs (30405:pubkey:d-tag)" class="rounded-lg border border-[var(--line)] px-3 py-2"></textarea>
-                <textarea v-model="listingsStore.draft.shippingText" rows="3" placeholder="Shipping refs per line, optionally ref|extra-cost" class="rounded-lg border border-[var(--line)] px-3 py-2"></textarea>
+                <textarea v-model="listingsStore.draft.categoriesText" rows="3" placeholder="Categories separated by comma" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]"></textarea>
+                <textarea v-model="listingsStore.draft.specsText" rows="3" placeholder="Specs key:value per line" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]"></textarea>
+                <textarea v-model="listingsStore.draft.collectionsText" rows="3" placeholder="Collection refs (30405:pubkey:d-tag)" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]"></textarea>
+                <textarea v-model="listingsStore.draft.shippingText" rows="3" placeholder="Shipping refs per line, optionally ref|extra-cost" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]"></textarea>
               </div>
 
-              <div class="mt-4 rounded-xl border border-dashed border-[var(--line)] p-4">
+              <div class="mt-4 admin-subpanel border-dashed p-4">
                 <div class="mb-2 font-medium">Listing Images (Blossom public servers)</div>
                 <input type="file" multiple accept="image/*" @change="onImageSelected" />
                 <ul class="mt-3 space-y-2">
-                  <li v-for="(image, index) in listingsStore.draft.images" :key="image.url + index" class="flex items-center justify-between rounded-lg border border-[var(--line)] px-3 py-2 text-xs">
+                  <li v-for="(image, index) in listingsStore.draft.images" :key="image.url + index" class="admin-subpanel flex items-center justify-between px-3 py-2 text-xs">
                     <span class="break-all">{{ image.url }}</span>
                     <button class="ml-3 rounded bg-red-50 px-2 py-1 text-[var(--error)]" @click="removeDraftImage(index)">remove</button>
                   </li>
                 </ul>
-                <ul class="mt-2 space-y-1 text-xs text-[var(--muted)]">
+                <ul class="mt-2 space-y-1 text-xs admin-muted">
                   <li v-for="item in listingsStore.uploadLog" :key="item">{{ item }}</li>
                 </ul>
               </div>
 
               <div class="mt-4 flex flex-wrap gap-3">
-                <button :disabled="!publishReady || listingsStore.publishing" class="rounded-lg bg-[var(--brand)] px-4 py-2 font-semibold text-white disabled:opacity-40" @click="publishListing">
+                <button :disabled="!publishReady || listingsStore.publishing" class="admin-primary px-4 py-2 font-semibold disabled:opacity-40" @click="publishListing">
                   {{ listingsStore.publishing ? 'Publishing...' : (listingsStore.editingListingId ? 'Update Listing' : 'Publish Listing') }}
                 </button>
-                <button class="rounded-lg border border-[var(--line)] px-4 py-2" @click="openExistingListings">Back to Existing Listings</button>
+                <button class="admin-action px-4 py-2" @click="openExistingListings">Back to Existing Listings</button>
               </div>
               <p v-if="listingsStore.error" class="mt-3 text-sm text-[var(--error)]">{{ listingsStore.error }}</p>
             </div>
           </section>
 
           <section v-if="activeTab === 'orders'" class="space-y-4">
-        <div class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+        <div class="admin-panel p-4 md:p-6">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="text-lg font-semibold">Orders Timeline</h3>
             <button
               :disabled="!authStore.isConnected || ordersStore.loading"
-              class="rounded-lg border border-[var(--line)] px-4 py-2"
+              class="admin-action px-4 py-2"
               @click="ordersStore.loadOrders({ merchantPubkey: authStore.pubkey, inboxRelays: relayStore.effectiveInboxRelays, outboxRelays: relayStore.effectiveOutboxRelays })"
             >
               {{ ordersStore.loading ? 'Loading...' : 'Refresh Orders' }}
             </button>
           </div>
-          <p class="mt-2 text-sm text-[var(--muted)]">Order messages are grouped by the `order` tag and include type 1/2/3/4 events.</p>
+          <p class="mt-2 text-sm admin-muted">Order messages are grouped by the `order` tag and include type 1/2/3/4 events.</p>
           <p v-if="ordersStore.error" class="mt-2 text-sm text-[var(--error)]">{{ ordersStore.error }}</p>
         </div>
 
         <div class="space-y-4">
-          <div v-for="order in ordersStore.formattedOrders" :key="order.orderId" class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+          <div v-for="order in ordersStore.formattedOrders" :key="order.orderId" class="admin-panel p-4 md:p-6">
             <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
-                <div class="text-sm uppercase tracking-wide text-[var(--muted)]">Order</div>
+                <div class="text-sm uppercase tracking-wide admin-muted">Order</div>
                 <div class="font-mono text-sm">{{ order.orderId }}</div>
-                <div class="text-xs text-[var(--muted)]">buyer {{ order.buyer }}</div>
+                <div class="text-xs admin-muted">buyer {{ order.buyer }}</div>
               </div>
-              <div class="rounded-full bg-[var(--bg-1)] px-3 py-1 text-sm">{{ order.currentStatus }}</div>
+              <div class="rounded-md bg-[var(--panel-strong)] px-3 py-1 text-sm text-[var(--ink-1)]">{{ order.currentStatus }}</div>
             </div>
 
             <div class="mt-4 grid gap-3 md:grid-cols-2">
-              <div class="rounded-xl border border-[var(--line)] p-3">
+              <div class="admin-subpanel p-3">
                 <h4 class="font-medium">Send Status Update</h4>
-                <select v-model="orderStatusState(order.orderId).status" class="mt-2 w-full rounded-lg border border-[var(--line)] px-3 py-2">
+                <select v-model="orderStatusState(order.orderId).status" class="mt-2 w-full rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]">
                   <option value="pending">pending</option>
                   <option value="confirmed">confirmed</option>
                   <option value="processing">processing</option>
                   <option value="completed">completed</option>
                   <option value="cancelled">cancelled</option>
                 </select>
-                <input v-model="orderStatusState(order.orderId).note" placeholder="Optional note" class="mt-2 w-full rounded-lg border border-[var(--line)] px-3 py-2" />
-                <button class="mt-2 rounded-lg bg-[var(--brand)] px-3 py-2 text-white" @click="sendOrderStatus(order)">Send Status</button>
+                <input v-model="orderStatusState(order.orderId).note" placeholder="Optional note" class="mt-2 w-full rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <button class="admin-primary mt-2 px-3 py-2" @click="sendOrderStatus(order)">Send Status</button>
               </div>
 
-              <div class="rounded-xl border border-[var(--line)] p-3">
+              <div class="admin-subpanel p-3">
                 <h4 class="font-medium">Send Shipping Update</h4>
-                <select v-model="shippingState(order.orderId).status" class="mt-2 w-full rounded-lg border border-[var(--line)] px-3 py-2">
+                <select v-model="shippingState(order.orderId).status" class="mt-2 w-full rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]">
                   <option value="processing">processing</option>
                   <option value="shipped">shipped</option>
                   <option value="delivered">delivered</option>
                   <option value="exception">exception</option>
                 </select>
-                <input v-model="shippingState(order.orderId).tracking" placeholder="Tracking" class="mt-2 w-full rounded-lg border border-[var(--line)] px-3 py-2" />
-                <input v-model="shippingState(order.orderId).carrier" placeholder="Carrier" class="mt-2 w-full rounded-lg border border-[var(--line)] px-3 py-2" />
-                <input v-model="shippingState(order.orderId).eta" placeholder="ETA unix timestamp" class="mt-2 w-full rounded-lg border border-[var(--line)] px-3 py-2" />
-                <input v-model="shippingState(order.orderId).note" placeholder="Optional note" class="mt-2 w-full rounded-lg border border-[var(--line)] px-3 py-2" />
-                <button class="mt-2 rounded-lg bg-[var(--ink-1)] px-3 py-2 text-white" @click="sendShipping(order)">Send Shipping</button>
+                <input v-model="shippingState(order.orderId).tracking" placeholder="Tracking" class="mt-2 w-full rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <input v-model="shippingState(order.orderId).carrier" placeholder="Carrier" class="mt-2 w-full rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <input v-model="shippingState(order.orderId).eta" placeholder="ETA unix timestamp" class="mt-2 w-full rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <input v-model="shippingState(order.orderId).note" placeholder="Optional note" class="mt-2 w-full rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <button class="mt-2 rounded-md bg-[var(--ink-1)] px-3 py-2 text-white" @click="sendShipping(order)">Send Shipping</button>
               </div>
             </div>
 
             <div class="mt-4 space-y-2 text-xs">
-              <div v-for="entry in order.timeline" :key="entry.id" class="rounded-lg border border-[var(--line)] px-3 py-2">
+              <div v-for="entry in order.timeline" :key="entry.id" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]">
                 <div class="font-semibold">{{ entry.typeLabel }} / {{ entry.createdAt }}</div>
-                <div class="text-[var(--muted)]">{{ entry.rawContent || 'No human-readable content' }}</div>
+                <div class="admin-muted">{{ entry.rawContent || 'No human-readable content' }}</div>
               </div>
             </div>
           </div>
-          <div v-if="!ordersStore.formattedOrders.length" class="rounded-2xl border border-[var(--line)] bg-white p-4 text-[var(--muted)]">No orders loaded yet.</div>
+          <div v-if="!ordersStore.formattedOrders.length" class="admin-panel p-4 admin-muted">No orders loaded yet.</div>
         </div>
           </section>
 
           <section v-if="activeTab === 'payments'" class="space-y-4">
-            <div class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+            <div class="admin-panel p-4 md:p-6">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <h3 class="text-lg font-semibold">Payments Reconciliation</h3>
                 <button
                   :disabled="!authStore.isConnected || paymentsStore.loading"
-                  class="rounded-lg border border-[var(--line)] px-4 py-2"
+                  class="admin-action px-4 py-2"
                   @click="paymentsStore.loadPayments({ merchantPubkey: authStore.pubkey, inboxRelays: relayStore.effectiveInboxRelays, outboxRelays: relayStore.effectiveOutboxRelays })"
                 >
                   {{ paymentsStore.loading ? 'Loading...' : 'Refresh Payments' }}
                 </button>
               </div>
-              <p class="mt-2 text-sm text-[var(--muted)]">Use this board to confirm whether each order has been paid, then request payment only when needed.</p>
+              <p class="mt-2 text-sm admin-muted">Use this board to confirm whether each order has been paid, then request payment only when needed.</p>
               <p v-if="paymentsStore.error" class="mt-2 text-sm text-[var(--error)]">{{ paymentsStore.error }}</p>
             </div>
 
             <div class="space-y-4">
-              <div v-for="row in paymentBoard" :key="row.order.orderId" class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+              <div v-for="row in paymentBoard" :key="row.order.orderId" class="admin-panel p-4 md:p-6">
                 <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <div class="text-sm uppercase tracking-wide text-[var(--muted)]">Order</div>
+                    <div class="text-sm uppercase tracking-wide admin-muted">Order</div>
                     <div class="font-mono text-sm">{{ row.order.orderId }}</div>
-                    <div class="text-xs text-[var(--muted)]">buyer {{ row.order.buyer }}</div>
+                    <div class="text-xs admin-muted">buyer {{ row.order.buyer }}</div>
                   </div>
                   <div class="flex flex-wrap gap-2 text-xs">
-                    <span class="rounded-full bg-[var(--bg-1)] px-3 py-1">{{ row.paymentStatus }}</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1">{{ row.verificationState }}</span>
+                    <span class="rounded-md bg-[var(--panel-strong)] px-3 py-1 text-[var(--ink-1)]">{{ row.paymentStatus }}</span>
+                    <span class="rounded-md bg-[var(--panel-strong)] px-3 py-1 text-[var(--ink-1)]">{{ row.verificationState }}</span>
                   </div>
                 </div>
 
                 <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                  <div class="rounded-lg border border-[var(--line)] p-3 text-sm">
-                    <div class="text-xs text-[var(--muted)]">Due</div>
+                  <div class="admin-subpanel p-3 text-sm">
+                    <div class="text-xs admin-muted">Due</div>
                     <div class="font-semibold">{{ row.dueAmount || 'unknown' }}</div>
                   </div>
-                  <div class="rounded-lg border border-[var(--line)] p-3 text-sm">
-                    <div class="text-xs text-[var(--muted)]">Requested</div>
+                  <div class="admin-subpanel p-3 text-sm">
+                    <div class="text-xs admin-muted">Requested</div>
                     <div class="font-semibold">{{ row.requestedAmount }}</div>
                   </div>
-                  <div class="rounded-lg border border-[var(--line)] p-3 text-sm">
-                    <div class="text-xs text-[var(--muted)]">Received</div>
+                  <div class="admin-subpanel p-3 text-sm">
+                    <div class="text-xs admin-muted">Received</div>
                     <div class="font-semibold">{{ row.receivedAmount }}</div>
                   </div>
-                  <div class="rounded-lg border border-[var(--line)] p-3 text-sm">
-                    <div class="text-xs text-[var(--muted)]">Balance</div>
+                  <div class="admin-subpanel p-3 text-sm">
+                    <div class="text-xs admin-muted">Balance</div>
                     <div class="font-semibold">{{ row.balance }}</div>
                   </div>
-                  <div class="rounded-lg border border-[var(--line)] p-3 text-sm">
-                    <div class="text-xs text-[var(--muted)]">Receipts</div>
+                  <div class="admin-subpanel p-3 text-sm">
+                    <div class="text-xs admin-muted">Receipts</div>
                     <div class="font-semibold">{{ row.receipts.length }}</div>
                   </div>
                 </div>
 
                 <div class="mt-4 flex flex-wrap gap-2">
-                  <button class="rounded-lg border border-[var(--line)] px-3 py-2 text-xs" @click="toggleManualVerification(row.order.orderId)">
+                  <button class="admin-action px-3 py-2 text-xs" @click="toggleManualVerification(row.order.orderId)">
                     {{ manualVerification[row.order.orderId] ? 'Undo external verification' : 'Mark externally verified' }}
                   </button>
                 </div>
 
-                <div class="mt-4 rounded-xl border border-[var(--line)] p-3">
+                <div class="mt-4 admin-subpanel p-3">
                   <h4 class="font-medium">Request Payment (if unpaid)</h4>
                   <div class="mt-2 grid gap-2 md:grid-cols-4">
-                    <input v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).amount" placeholder="Amount" class="rounded-lg border border-[var(--line)] px-3 py-2 text-sm" />
-                    <select v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).medium" class="rounded-lg border border-[var(--line)] px-3 py-2 text-sm">
+                    <input v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).amount" placeholder="Amount" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--ink-1)]" />
+                    <select v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).medium" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--ink-1)]">
                       <option value="lightning">lightning</option>
                       <option value="bitcoin">bitcoin</option>
                       <option value="ecash">ecash</option>
                       <option value="fiat">fiat</option>
                     </select>
-                    <input v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).reference" placeholder="Invoice/address/request" class="rounded-lg border border-[var(--line)] px-3 py-2 text-sm md:col-span-2" />
-                    <input v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).proof" placeholder="Optional proof" class="rounded-lg border border-[var(--line)] px-3 py-2 text-sm md:col-span-2" />
-                    <input v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).expiration" placeholder="Expiration unix timestamp" class="rounded-lg border border-[var(--line)] px-3 py-2 text-sm md:col-span-2" />
-                    <textarea v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).note" rows="2" placeholder="Payment note" class="rounded-lg border border-[var(--line)] px-3 py-2 text-sm md:col-span-4"></textarea>
+                    <input v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).reference" placeholder="Invoice/address/request" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--ink-1)] md:col-span-2" />
+                    <input v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).proof" placeholder="Optional proof" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--ink-1)] md:col-span-2" />
+                    <input v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).expiration" placeholder="Expiration unix timestamp" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--ink-1)] md:col-span-2" />
+                    <textarea v-model="getPaymentRequestDraft(row.order.orderId, row.balance || row.dueAmount).note" rows="2" placeholder="Payment note" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--ink-1)] md:col-span-4"></textarea>
                   </div>
-                  <button :disabled="paymentsStore.sending || !authStore.isConnected" class="mt-3 rounded-lg bg-[var(--brand)] px-4 py-2 text-sm text-white disabled:opacity-40" @click="sendPaymentRequestForOrder(row)">
+                  <button :disabled="paymentsStore.sending || !authStore.isConnected" class="mt-3 admin-primary px-4 py-2 text-sm disabled:opacity-40" @click="sendPaymentRequestForOrder(row)">
                     {{ paymentsStore.sending ? 'Sending...' : 'Send Payment Request' }}
                   </button>
                 </div>
               </div>
-              <div v-if="!paymentBoard.length" class="rounded-2xl border border-[var(--line)] bg-white p-4 text-[var(--muted)]">No order-linked payments available.</div>
+              <div v-if="!paymentBoard.length" class="admin-panel p-4 admin-muted">No order-linked payments available.</div>
             </div>
           </section>
 
           <section v-if="activeTab === 'settings'" class="space-y-4">
-        <div class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+        <div class="admin-panel p-4 md:p-6">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="text-lg font-semibold">Merchant Settings (kind:0)</h3>
-            <button :disabled="!authStore.isConnected || profileStore.loading" class="rounded-lg border border-[var(--line)] px-4 py-2" @click="profileStore.loadProfile({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays })">
+            <button :disabled="!authStore.isConnected || profileStore.loading" class="admin-action px-4 py-2" @click="profileStore.loadProfile({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays })">
               {{ profileStore.loading ? 'Loading...' : 'Refresh Settings' }}
             </button>
           </div>
 
             <div class="mt-3 grid gap-3 md:grid-cols-2">
-              <input v-model="profileStore.name" placeholder="Shop name" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-              <input v-model="profileStore.lud16" placeholder="Lightning address (lud16)" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-            <input v-model="profileStore.picture" placeholder="Logo URL" class="rounded-lg border border-[var(--line)] px-3 py-2 md:col-span-2" />
-            <div class="rounded-xl border border-dashed border-[var(--line)] p-3 md:col-span-2">
+              <input v-model="profileStore.name" placeholder="Shop name" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+              <input v-model="profileStore.lud16" placeholder="Lightning address (lud16)" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+            <input v-model="profileStore.picture" placeholder="Logo URL" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)] md:col-span-2" />
+            <div class="admin-subpanel border-dashed p-3 md:col-span-2">
               <p class="text-sm font-medium">Upload logo via Blossom</p>
               <input type="file" accept="image/*" class="mt-2" @change="onLogoSelected" />
-              <p v-if="logoUploadStatus" class="mt-2 text-xs text-[var(--muted)]">{{ logoUploadStatus }}</p>
+              <p v-if="logoUploadStatus" class="mt-2 text-xs admin-muted">{{ logoUploadStatus }}</p>
             </div>
-              <input v-model="profileStore.website" placeholder="Website URL" class="rounded-lg border border-[var(--line)] px-3 py-2 md:col-span-2" />
-              <textarea v-model="profileStore.about" rows="4" placeholder="About" class="rounded-lg border border-[var(--line)] px-3 py-2 md:col-span-2"></textarea>
+              <input v-model="profileStore.website" placeholder="Website URL" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)] md:col-span-2" />
+              <textarea v-model="profileStore.about" rows="4" placeholder="About" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)] md:col-span-2"></textarea>
             </div>
 
-            <div class="mt-4 rounded-xl border border-[var(--line)] p-4">
+            <div class="mt-4 admin-subpanel p-4">
               <h4 class="font-medium">Upload Authorization</h4>
               <label class="mt-3 flex items-center gap-2 text-sm">
                 <input v-model="relayStore.requireBlossomAuth" type="checkbox" />
                 Sign uploads with your Nostr key (required by some Blossom servers)
               </label>
-              <p class="mt-2 text-xs text-[var(--muted)]">
+              <p class="mt-2 text-xs admin-muted">
                 Turn this on if a server rejects uploads without authentication.
               </p>
             </div>
 
-            <button :disabled="profileStore.saving || !authStore.isConnected" class="mt-4 rounded-lg bg-[var(--brand)] px-4 py-2 text-white disabled:opacity-40" @click="saveProfile">
+            <button :disabled="profileStore.saving || !authStore.isConnected" class="admin-primary mt-4 px-4 py-2 disabled:opacity-40" @click="saveProfile">
               {{ profileStore.saving ? 'Publishing...' : 'Publish Settings' }}
             </button>
 
@@ -1047,26 +1090,73 @@ onMounted(async () => {
         </div>
           </section>
 
+          <section v-if="activeTab === 'mints'" class="space-y-4">
+            <div class="admin-panel p-4 md:p-6">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 class="text-lg font-semibold">Cashu Mints</h3>
+                  <p class="mt-2 text-sm admin-muted">Manage your Nostr mint list event and publish the mint URLs you want wallets to discover.</p>
+                </div>
+                <button :disabled="!authStore.isConnected || mintsStore.loading" class="admin-action px-4 py-2 text-sm" @click="mintsStore.loadMints({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays })">
+                  {{ mintsStore.loading ? 'Loading...' : 'Refresh Mints' }}
+                </button>
+              </div>
+
+              <div class="mt-4 admin-subpanel p-4">
+                <div class="flex flex-wrap gap-2">
+                  <input v-model="newMintUrl" placeholder="https://mint.example.com" class="min-w-0 flex-1 rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-sm text-[var(--ink-1)]" />
+                  <button class="admin-primary px-4 py-2 text-sm font-semibold" @click="addMintUrl">Add Mint</button>
+                </div>
+                <p class="mt-2 text-xs admin-muted">Use full mint base URLs. Duplicate entries are ignored.</p>
+              </div>
+
+              <div class="mt-4 space-y-2">
+                <div v-if="mintsStore.mintUrls.length" class="space-y-2">
+                  <div v-for="mint in mintsStore.mintUrls" :key="mint" class="admin-subpanel flex items-center justify-between gap-3 p-3">
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate font-mono text-sm text-[var(--ink-1)]">{{ mint }}</div>
+                    </div>
+                    <button class="rounded-md bg-red-50 px-3 py-1 text-xs font-medium text-[var(--error)]" @click="mintsStore.removeMint(mint)">
+                      Remove
+                    </button>
+                  </div>
+                </div>
+                <div v-else class="admin-subpanel border-dashed p-4 text-sm admin-muted">
+                  No mints in your list yet.
+                </div>
+              </div>
+
+              <div class="mt-4 flex flex-wrap items-center gap-3">
+                <button :disabled="!authStore.isConnected || mintsStore.saving" class="admin-primary px-4 py-2 text-sm font-semibold disabled:opacity-40" @click="publishMintList">
+                  {{ mintsStore.saving ? 'Publishing...' : 'Publish Mint List' }}
+                </button>
+                <p v-if="mintsStore.eventId" class="text-xs admin-muted">Latest event: {{ mintsStore.eventId.slice(0, 16) }}...</p>
+              </div>
+
+              <p v-if="mintsStore.error" class="mt-3 text-sm text-[var(--error)]">{{ mintsStore.error }}</p>
+            </div>
+          </section>
+
           <section v-if="activeTab === 'design'" class="space-y-4">
-            <div class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+            <div class="admin-panel p-4 md:p-6">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <h3 class="text-lg font-semibold">Theme Design (Ditto kinds 36767 / 16767)</h3>
                 <div class="flex gap-2">
-                  <button class="rounded-lg border border-[var(--line)] px-4 py-2 text-sm" :disabled="designStore.loading" @click="designStore.loadThemes({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays })">
+                  <button class="admin-action px-4 py-2 text-sm" :disabled="designStore.loading" @click="designStore.loadThemes({ pubkey: authStore.pubkey, relays: relayStore.effectiveOutboxRelays })">
                     {{ designStore.loading ? 'Loading...' : 'Refresh Themes' }}
                   </button>
-                  <button class="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm text-white" @click="openNewTheme">New Theme</button>
+                  <button class="admin-primary px-4 py-2 text-sm" @click="openNewTheme">New Theme</button>
                 </div>
               </div>
-              <p class="mt-2 text-sm text-[var(--muted)]">Create a theme for your storefront and publish it to Nostr. Then set one theme as active.</p>
+              <p class="mt-2 text-sm admin-muted">Create a theme for your storefront and publish it to Nostr. Then set one theme as active.</p>
             </div>
 
-            <div v-if="designStore.activeTheme" class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+            <div v-if="designStore.activeTheme" class="admin-panel p-4 md:p-6">
               <h4 class="font-semibold">Active Theme</h4>
-              <div class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--line)] p-3">
+              <div class="admin-subpanel mt-3 flex flex-wrap items-center justify-between gap-3 p-3">
                 <div>
                   <div class="font-medium">{{ designStore.activeTheme.title }}</div>
-                  <div class="text-xs text-[var(--muted)]">{{ designStore.activeTheme.d || 'no d-tag (kind 16767)' }}</div>
+                  <div class="text-xs admin-muted">{{ designStore.activeTheme.d || 'no d-tag (kind 16767)' }}</div>
                 </div>
                 <div class="flex items-center gap-2">
                   <span class="h-6 w-6 rounded-full border" :style="{ backgroundColor: designStore.activeTheme.primary }"></span>
@@ -1076,14 +1166,14 @@ onMounted(async () => {
               </div>
             </div>
 
-            <div v-if="designView === 'existing'" class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+            <div v-if="designView === 'existing'" class="admin-panel p-4 md:p-6">
               <h4 class="font-semibold">Published Themes</h4>
               <div v-if="designStore.hasThemes" class="mt-3 space-y-2">
-                <div v-for="theme in designStore.themes" :key="theme.id" class="rounded-lg border border-[var(--line)] p-3">
+                <div v-for="theme in designStore.themes" :key="theme.id" class="admin-subpanel p-3">
                   <div class="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div class="font-medium">{{ theme.title }}</div>
-                      <div class="text-xs text-[var(--muted)]">{{ theme.d }} / {{ theme.createdAt }}</div>
+                      <div class="text-xs admin-muted">{{ theme.d }} / {{ theme.createdAt }}</div>
                     </div>
                     <div class="flex items-center gap-2">
                       <span class="h-5 w-5 rounded-full border" :style="{ backgroundColor: theme.primary }"></span>
@@ -1091,45 +1181,45 @@ onMounted(async () => {
                       <span class="h-5 w-5 rounded-full border" :style="{ backgroundColor: theme.background }"></span>
                     </div>
                     <div class="flex items-center gap-2">
-                      <button class="rounded-lg border border-[var(--line)] px-3 py-1 text-xs" @click="editTheme(theme)">Edit</button>
-                      <button class="rounded-lg bg-[var(--ink-1)] px-3 py-1 text-xs text-white" @click="setActiveTheme(theme)">Set Active</button>
+                      <button class="admin-action px-3 py-1 text-xs" @click="editTheme(theme)">Edit</button>
+                      <button class="rounded-md bg-[var(--ink-1)] px-3 py-1 text-xs text-white" @click="setActiveTheme(theme)">Set Active</button>
                     </div>
                   </div>
                 </div>
               </div>
-              <div v-else class="mt-3 rounded-lg border border-dashed border-[var(--line)] p-4 text-sm text-[var(--muted)]">
+              <div v-else class="mt-3 admin-subpanel border-dashed p-4 text-sm admin-muted">
                 No themes published yet.
-                <button class="ml-2 rounded-lg bg-[var(--brand)] px-3 py-1 text-xs text-white" @click="openNewTheme">Create first theme</button>
+                <button class="admin-primary ml-2 px-3 py-1 text-xs" @click="openNewTheme">Create first theme</button>
               </div>
             </div>
 
-            <div v-if="designView === 'new'" class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+            <div v-if="designView === 'new'" class="admin-panel p-4 md:p-6">
               <div class="mb-3 flex items-center justify-between">
                 <h4 class="font-semibold">Theme Editor</h4>
-                <button class="rounded-lg border border-[var(--line)] px-3 py-1 text-sm" @click="openExistingThemes">Back to Themes</button>
+                <button class="admin-action px-3 py-1 text-sm" @click="openExistingThemes">Back to Themes</button>
               </div>
 
               <div class="grid gap-3 md:grid-cols-2">
-                <input v-model="designStore.draft.title" placeholder="Theme title" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-                <input v-model="designStore.draft.d" placeholder="Theme ID (auto-generated)" class="rounded-lg border border-[var(--line)] px-3 py-2" />
+                <input v-model="designStore.draft.title" placeholder="Theme title" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                <input v-model="designStore.draft.d" placeholder="Theme ID (auto-generated)" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
               </div>
 
               <div class="mt-4 grid gap-3 md:grid-cols-3">
-                <label class="rounded-lg border border-[var(--line)] p-3 text-sm">
+                <label class="admin-subpanel p-3 text-sm">
                   <div class="mb-2 font-medium">Primary color</div>
                   <div class="flex items-center gap-2">
                     <input v-model="designStore.draft.primary" type="color" class="h-10 w-12 rounded border border-[var(--line)]" />
                     <input v-model="designStore.draft.primary" class="w-full rounded border border-[var(--line)] px-2 py-1 font-mono text-xs" />
                   </div>
                 </label>
-                <label class="rounded-lg border border-[var(--line)] p-3 text-sm">
+                <label class="admin-subpanel p-3 text-sm">
                   <div class="mb-2 font-medium">Text color</div>
                   <div class="flex items-center gap-2">
                     <input v-model="designStore.draft.text" type="color" class="h-10 w-12 rounded border border-[var(--line)]" />
                     <input v-model="designStore.draft.text" class="w-full rounded border border-[var(--line)] px-2 py-1 font-mono text-xs" />
                   </div>
                 </label>
-                <label class="rounded-lg border border-[var(--line)] p-3 text-sm">
+                <label class="admin-subpanel p-3 text-sm">
                   <div class="mb-2 font-medium">Background color</div>
                   <div class="flex items-center gap-2">
                     <input v-model="designStore.draft.background" type="color" class="h-10 w-12 rounded border border-[var(--line)]" />
@@ -1138,39 +1228,39 @@ onMounted(async () => {
                 </label>
               </div>
 
-              <div class="mt-4 rounded-xl border border-[var(--line)] p-4">
+              <div class="mt-4 admin-subpanel p-4">
                 <h5 class="font-medium">Optional fonts</h5>
                 <div class="mt-2 grid gap-3 md:grid-cols-2">
-                  <input v-model="designStore.draft.bodyFontFamily" placeholder="Body font family" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-                  <input v-model="designStore.draft.bodyFontUrl" placeholder="Body font URL" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-                  <input v-model="designStore.draft.titleFontFamily" placeholder="Title font family" class="rounded-lg border border-[var(--line)] px-3 py-2" />
-                  <input v-model="designStore.draft.titleFontUrl" placeholder="Title font URL" class="rounded-lg border border-[var(--line)] px-3 py-2" />
+                  <input v-model="designStore.draft.bodyFontFamily" placeholder="Body font family" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                  <input v-model="designStore.draft.bodyFontUrl" placeholder="Body font URL" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                  <input v-model="designStore.draft.titleFontFamily" placeholder="Title font family" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+                  <input v-model="designStore.draft.titleFontUrl" placeholder="Title font URL" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
                 </div>
               </div>
 
-              <div class="mt-4 rounded-xl border border-[var(--line)] p-4">
+              <div class="mt-4 admin-subpanel p-4">
                 <h5 class="font-medium">Optional background media</h5>
                 <div class="mt-2 grid gap-3 md:grid-cols-3">
-                  <input v-model="designStore.draft.bgUrl" placeholder="Background URL" class="rounded-lg border border-[var(--line)] px-3 py-2 md:col-span-2" />
-                  <select v-model="designStore.draft.bgMode" class="rounded-lg border border-[var(--line)] px-3 py-2">
+                  <input v-model="designStore.draft.bgUrl" placeholder="Background URL" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)] md:col-span-2" />
+                  <select v-model="designStore.draft.bgMode" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]">
                     <option value="cover">cover</option>
                     <option value="tile">tile</option>
                   </select>
-                  <input v-model="designStore.draft.bgMime" placeholder="MIME type (image/jpeg)" class="rounded-lg border border-[var(--line)] px-3 py-2 md:col-span-3" />
+                  <input v-model="designStore.draft.bgMime" placeholder="MIME type (image/jpeg)" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)] md:col-span-3" />
                 </div>
               </div>
 
-              <div class="mt-4 rounded-xl border border-[var(--line)] p-4" :style="{ backgroundColor: designStore.draft.background, color: designStore.draft.text }">
+              <div class="mt-4 admin-subpanel p-4" :style="{ backgroundColor: designStore.draft.background, color: designStore.draft.text }">
                 <div class="text-sm">Theme preview</div>
                 <div class="mt-2 text-xl font-semibold" :style="{ color: designStore.draft.primary }">{{ designStore.draft.title || 'Theme Title' }}</div>
                 <div class="mt-2 text-sm">This preview uses your selected primary, text, and background colors.</div>
               </div>
 
               <div class="mt-4 flex flex-wrap gap-2">
-                <button :disabled="!designPublishReady || designStore.saving" class="rounded-lg bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-40" @click="publishTheme">
+                <button :disabled="!designPublishReady || designStore.saving" class="admin-primary px-4 py-2 text-sm font-semibold disabled:opacity-40" @click="publishTheme">
                   {{ designStore.saving ? 'Publishing...' : 'Publish Theme (36767)' }}
                 </button>
-                <button :disabled="!designPublishReady || designStore.saving" class="rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm" @click="publishAndSetActiveTheme">
+                <button :disabled="!designPublishReady || designStore.saving" class="admin-action px-4 py-2 text-sm" @click="publishAndSetActiveTheme">
                   Publish and Set Active (16767)
                 </button>
               </div>
@@ -1179,23 +1269,23 @@ onMounted(async () => {
           </section>
 
           <section v-if="activeTab === 'relays'" class="space-y-4">
-            <div class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+            <div class="admin-panel p-4 md:p-6">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <h3 class="text-lg font-semibold">Relay Routing</h3>
-                <button class="rounded-lg border border-[var(--line)] px-4 py-2 text-sm" :disabled="relayStore.routingLoading" @click="refreshRoutingAndData">
+                <button class="admin-action px-4 py-2 text-sm" :disabled="relayStore.routingLoading" @click="refreshRoutingAndData">
                   {{ relayStore.routingLoading ? 'Refreshing...' : 'Refresh Routing' }}
                 </button>
               </div>
-              <p class="mt-2 text-sm text-[var(--muted)]">Source: {{ relaySourceLabel }}. Initial lookup uses bootstrap relays only.</p>
+              <p class="mt-2 text-sm admin-muted">Source: {{ relaySourceLabel }}. Initial lookup uses bootstrap relays only.</p>
               <p v-if="relayStore.routingError" class="mt-2 text-sm text-[var(--error)]">{{ relayStore.routingError }}</p>
 
               <div class="mt-4 grid gap-4 md:grid-cols-3">
-                <div class="rounded-xl border border-[var(--line)] p-3">
+                <div class="admin-subpanel p-3">
                   <h4 class="font-medium">Bootstrap Relays</h4>
-                  <p class="mt-1 text-xs text-[var(--muted)]">Used for initial key lookup and relay list discovery</p>
+                  <p class="mt-1 text-xs admin-muted">Used for initial key lookup and relay list discovery</p>
                   <div class="mt-2 flex gap-2">
-                    <input v-model="newBootstrapRelay" placeholder="wss://relay.example" class="min-w-0 flex-1 rounded-lg border border-[var(--line)] px-2 py-1 text-xs" />
-                    <button class="rounded-lg bg-[var(--brand)] px-2 py-1 text-xs font-semibold text-white" @click="addBootstrapRelay">+</button>
+                    <input v-model="newBootstrapRelay" placeholder="wss://relay.example" class="min-w-0 flex-1 rounded-md border border-[var(--line)] bg-[var(--panel)] px-2 py-1 text-xs text-[var(--ink-1)]" />
+                    <button class="admin-primary px-2 py-1 text-xs font-semibold" @click="addBootstrapRelay">+</button>
                   </div>
                   <ul class="mt-2 space-y-1 text-xs font-mono">
                     <li v-for="relay in relayStore.bootstrapRelays" :key="relay" class="flex items-center justify-between gap-2">
@@ -1204,13 +1294,13 @@ onMounted(async () => {
                     </li>
                   </ul>
                 </div>
-                <div class="rounded-xl border border-[var(--line)] p-3">
+                <div class="admin-subpanel p-3">
                   <h4 class="font-medium">Inbox Relays (Read)</h4>
                   <ul class="mt-2 space-y-1 text-xs font-mono">
                     <li v-for="relay in relayStore.effectiveInboxRelays" :key="relay">{{ relay }}</li>
                   </ul>
                 </div>
-                <div class="rounded-xl border border-[var(--line)] p-3">
+                <div class="admin-subpanel p-3">
                   <h4 class="font-medium">Outbox Relays (Write)</h4>
                   <ul class="mt-2 space-y-1 text-xs font-mono">
                     <li v-for="relay in relayStore.effectiveOutboxRelays" :key="relay">{{ relay }}</li>
@@ -1221,20 +1311,20 @@ onMounted(async () => {
           </section>
 
           <section v-if="activeTab === 'blossom'" class="space-y-4">
-            <div class="rounded-2xl border border-[var(--line)] bg-white p-4 md:p-6">
+            <div class="admin-panel p-4 md:p-6">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <h3 class="text-lg font-semibold">Blossom Server List</h3>
-                <button class="rounded-lg border border-[var(--line)] px-4 py-2 text-sm" :disabled="relayStore.routingLoading" @click="refreshRoutingAndData">
+                <button class="admin-action px-4 py-2 text-sm" :disabled="relayStore.routingLoading" @click="refreshRoutingAndData">
                   {{ relayStore.routingLoading ? 'Refreshing...' : 'Refresh Server List' }}
                 </button>
               </div>
-              <p class="mt-2 text-sm text-[var(--muted)]">Source: {{ blossomSourceLabel }}.</p>
-              <div class="mt-4 rounded-xl border border-[var(--line)] p-3">
+              <p class="mt-2 text-sm admin-muted">Source: {{ blossomSourceLabel }}.</p>
+              <div class="mt-4 admin-subpanel p-3">
                 <h4 class="font-medium">Fallback Blossom Servers</h4>
-                <p class="mt-1 text-xs text-[var(--muted)]">Used only if no kind 10063 server list is found</p>
+                <p class="mt-1 text-xs admin-muted">Used only if no kind 10063 server list is found</p>
                 <div class="mt-2 flex gap-2">
-                  <input v-model="newBlossomServer" placeholder="https://cdn.example.com" class="min-w-0 flex-1 rounded-lg border border-[var(--line)] px-2 py-1 text-xs" />
-                  <button class="rounded-lg bg-[var(--brand)] px-2 py-1 text-xs font-semibold text-white" @click="addFallbackBlossomServer">+</button>
+                  <input v-model="newBlossomServer" placeholder="https://cdn.example.com" class="min-w-0 flex-1 rounded-md border border-[var(--line)] bg-[var(--panel)] px-2 py-1 text-xs text-[var(--ink-1)]" />
+                  <button class="admin-primary px-2 py-1 text-xs font-semibold" @click="addFallbackBlossomServer">+</button>
                 </div>
                 <ul class="mt-2 space-y-1 text-xs font-mono">
                   <li v-for="server in relayStore.fallbackBlossomServers" :key="`fallback-${server}`" class="flex items-center justify-between gap-2">
@@ -1244,7 +1334,7 @@ onMounted(async () => {
                 </ul>
               </div>
 
-              <div class="mt-4 rounded-xl border border-[var(--line)] p-3">
+              <div class="mt-4 admin-subpanel p-3">
                 <h4 class="font-medium">Effective Blossom Servers</h4>
                 <ul class="mt-2 space-y-1 text-xs font-mono">
                   <li v-for="server in relayStore.effectiveBlossomServers" :key="server">{{ server }}</li>
