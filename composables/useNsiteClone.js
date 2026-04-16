@@ -14,13 +14,61 @@ const uniq = (values) => {
   return Array.from(new Set(values.map(toRelay).filter(Boolean)))
 }
 
-const parseSourceNpubFromHostname = (hostname) => {
+const NAMED_SITE_LABEL_RE = /^([0-9a-z]{50})([a-z0-9-]{1,13})$/
+
+const decodeBase36Pubkey = (value) => {
+  const alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
+  let decoded = 0n
+
+  for (const char of String(value || '').toLowerCase()) {
+    const digit = alphabet.indexOf(char)
+    if (digit === -1) {
+      throw new Error('Invalid base36 pubkey.')
+    }
+
+    decoded = (decoded * 36n) + BigInt(digit)
+  }
+
+  const hex = decoded.toString(16).padStart(64, '0')
+  if (hex.length !== 64) {
+    throw new Error('Invalid decoded pubkey length.')
+  }
+
+  return hex
+}
+
+export const parseCanonicalNamedSiteFromHostname = (hostname) => {
+  const host = String(hostname || '').toLowerCase()
+  const label = host.split('.')[0] || ''
+
+  if (!label || label.endsWith('-')) return null
+
+  const match = label.match(NAMED_SITE_LABEL_RE)
+  if (!match) return null
+
+  const [, pubkeyB36, dTag] = match
+
+  try {
+    const pubkey = decodeBase36Pubkey(pubkeyB36)
+
+    return {
+      label,
+      pubkey,
+      npub: nip19.npubEncode(pubkey),
+      identifier: dTag
+    }
+  } catch {
+    return null
+  }
+}
+
+export const parseSourceNpubFromHostname = (hostname) => {
   const host = String(hostname || '').toLowerCase()
   const subdomain = host.split('.')[0] || ''
 
   if (subdomain.startsWith('npub1')) return subdomain
   if (subdomain.startsWith('npubs1')) return `npub1${subdomain.slice(6)}`
-  return ''
+  return parseCanonicalNamedSiteFromHostname(host)?.npub || ''
 }
 
 const decodeNpub = (npub) => {
@@ -74,6 +122,28 @@ export const buildRootCloneManifestTemplate = ({ sourceManifest, sourcePubkey, r
   }
 }
 
+export const buildNamedCloneManifestTemplate = ({ sourceManifest, sourcePubkey, relays, identifier }) => {
+  const baseTags = stripMuseTags(stripNamedSiteTags((sourceManifest?.tags || []).map((tag) => [...tag])))
+  const relayTags = uniq([
+    ...parseRelaysFromManifest(sourceManifest),
+    ...(relays || [])
+  ]).map((relay) => ['relay', relay])
+
+  const nonRelayTags = baseTags.filter((tag) => tag[0] !== 'relay' && tag[0] !== 'r')
+
+  return {
+    kind: 35128,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ['d', identifier],
+      ...nonRelayTags,
+      ...relayTags,
+      ['muse', FIXED_MUSE_PUBKEY, ...uniq(relays || []).slice(0, 3)]
+    ],
+    content: sourceManifest?.content || ''
+  }
+}
+
 export const useNsiteClone = () => {
   const pool = new SimplePool()
 
@@ -93,24 +163,35 @@ export const useNsiteClone = () => {
     return parseSourceNpubFromHostname(hostname) || String(fallbackNpub || '')
   }
 
-  const fetchSourceManifest = async ({ sourceNpub, relays }) => {
+  const fetchSourceManifest = async ({ sourceNpub, relays, identifier = '' }) => {
     const sourcePubkey = decodeNpub(sourceNpub)
+    const normalizedIdentifier = String(identifier || '').trim()
 
-    const events = await pool.querySync(relays, {
-      kinds: [15128, 35128],
-      authors: [sourcePubkey],
-      limit: 30
-    })
+    const events = await pool.querySync(relays, normalizedIdentifier
+      ? {
+          kinds: [35128],
+          authors: [sourcePubkey],
+          '#d': [normalizedIdentifier],
+          limit: 10
+        }
+      : {
+          kinds: [15128],
+          authors: [sourcePubkey],
+          limit: 10
+        })
 
     const latest = [...events].sort((a, b) => b.created_at - a.created_at)[0]
     if (!latest) {
-      throw new Error('No source nsite manifest found on selected relays.')
+      throw new Error(normalizedIdentifier
+        ? `No source nsite manifest found for named site "${normalizedIdentifier}".`
+        : 'No source nsite root manifest found on selected relays.')
     }
 
     const manifestRelays = parseRelaysFromManifest(latest)
 
     return {
       sourcePubkey,
+      identifier: normalizedIdentifier,
       manifest: latest,
       manifestRelays
     }
@@ -135,8 +216,10 @@ export const useNsiteClone = () => {
     return event
   }
 
-  const publishClonedManifest = async ({ identity, signer, pubkey, sourceManifest, sourcePubkey, relays }) => {
-    const template = buildRootCloneManifestTemplate({ sourceManifest, sourcePubkey, relays })
+  const publishClonedManifest = async ({ identity, signer, pubkey, sourceManifest, sourcePubkey, relays, identifier = '' }) => {
+    const template = identifier
+      ? buildNamedCloneManifestTemplate({ sourceManifest, sourcePubkey, relays, identifier })
+      : buildRootCloneManifestTemplate({ sourceManifest, sourcePubkey, relays })
     const event = identity?.secretKey
       ? finalizeEvent(template, identity.secretKey)
       : await signer.signEvent({ ...template, pubkey })

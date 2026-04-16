@@ -9,7 +9,11 @@ import { useProfileStore } from '~/stores/profile'
 import { useDesignStore } from '~/stores/design'
 import { useMintsStore } from '~/stores/mints'
 import { useBlossom } from '~/composables/useBlossom'
+import { parseCanonicalNamedSiteFromHostname, parseSourceNpubFromHostname, useNsiteClone } from '~/composables/useNsiteClone'
 import { npubEncode } from 'nostr-tools/nip19'
+
+const GITHUB_VERSION_URL = 'https://raw.githubusercontent.com/OpenMarketsFoundation/Store-Front-Nsite/master/public/version.json'
+const UPDATE_SOURCE_IDENTIFIER = 'portal'
 
 useSeoMeta({
   title: 'Nostr Boutique Admin',
@@ -53,12 +57,39 @@ const designView = ref('existing')
 const loadingAll = ref(false)
 const logoUploadStatus = ref('')
 const isMobileMenuOpen = ref(false)
+const frontendVersionState = reactive({
+  loading: false,
+  error: '',
+  name: '',
+  version: '',
+  hostname: '',
+  npub: '',
+  siteIdentifier: ''
+})
+const githubVersionState = reactive({
+  loading: false,
+  error: '',
+  name: '',
+  version: ''
+})
+const updateState = reactive({
+  busy: false,
+  error: '',
+  success: ''
+})
 
 const paymentRequestDrafts = reactive({})
 const manualVerification = reactive({})
 
 const statusDrafts = reactive({})
 const shippingDrafts = reactive({})
+
+const {
+  uniq: uniqRelays,
+  fetchSourceManifest,
+  publishClonedManifest,
+  fixedMuseNpub
+} = useNsiteClone()
 
 const dashboardStats = computed(() => {
   return {
@@ -182,6 +213,245 @@ const cloneCandidateRelays = computed(() => {
 const activeTabLabel = computed(() => {
   return tabs.find((tab) => tab.id === activeTab.value)?.label || 'Home'
 })
+
+const frontendVersionSummary = computed(() => {
+  if (frontendVersionState.loading) return 'Checking deployed front-end version...'
+  if (frontendVersionState.error) return frontendVersionState.error
+  if (frontendVersionState.name && frontendVersionState.version) {
+    return `${frontendVersionState.name} v${frontendVersionState.version}`
+  }
+  if (frontendVersionState.version) {
+    return `Front-end version ${frontendVersionState.version}`
+  }
+  return 'Version information not available yet.'
+})
+
+const frontendVersionMeta = computed(() => {
+  if (frontendVersionState.siteIdentifier && frontendVersionState.npub) {
+    return `Named site ${frontendVersionState.siteIdentifier} resolved from ${frontendVersionState.npub}`
+  }
+
+  if (frontendVersionState.npub) {
+    return `Resolved from ${frontendVersionState.npub}`
+  }
+
+  if (frontendVersionState.hostname) {
+    return `Source host ${frontendVersionState.hostname}`
+  }
+
+  return ''
+})
+
+const githubVersionSummary = computed(() => {
+  if (githubVersionState.loading) return 'Checking GitHub version...'
+  if (githubVersionState.error) return githubVersionState.error
+  if (githubVersionState.name && githubVersionState.version) {
+    return `${githubVersionState.name} v${githubVersionState.version}`
+  }
+  if (githubVersionState.version) {
+    return `GitHub version ${githubVersionState.version}`
+  }
+  return 'GitHub version not available yet.'
+})
+
+const hasUpdateAvailable = computed(() => {
+  if (!frontendVersionState.version || !githubVersionState.version) return false
+  return compareVersions(githubVersionState.version, frontendVersionState.version) > 0
+})
+
+const canUpdateFrontend = computed(() => {
+  return authStore.isConnected && Boolean(authStore.signer) && hasUpdateAvailable.value && !updateState.busy
+})
+
+const updateButtonLabel = computed(() => {
+  if (updateState.busy) return 'Updating front end...'
+  if (hasUpdateAvailable.value) return 'Update to latest version'
+  return 'Already up to date'
+})
+
+const updateStatusMessage = computed(() => {
+  if (updateState.error) return updateState.error
+  if (updateState.success) return updateState.success
+  if (!authStore.isConnected) return 'Connect your signer to publish updated root and portal manifests.'
+  if (githubVersionState.error) return ''
+  if (frontendVersionState.error) return ''
+  if (hasUpdateAvailable.value) {
+    return `GitHub has ${githubVersionState.version} while this portal is on ${frontendVersionState.version}.`
+  }
+  if (frontendVersionState.version && githubVersionState.version) {
+    return 'This portal already matches the latest GitHub version.'
+  }
+  return ''
+})
+
+const pickVersionField = (payload, keys) => {
+  for (const key of keys) {
+    const value = payload?.[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number') return String(value)
+  }
+
+  return ''
+}
+
+const compareVersions = (left, right) => {
+  const leftParts = String(left || '').split(/[^0-9a-zA-Z]+/).filter(Boolean)
+  const rightParts = String(right || '').split(/[^0-9a-zA-Z]+/).filter(Boolean)
+  const length = Math.max(leftParts.length, rightParts.length)
+
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = leftParts[index] || '0'
+    const rightPart = rightParts[index] || '0'
+    const leftNumber = /^\d+$/.test(leftPart) ? Number.parseInt(leftPart, 10) : Number.NaN
+    const rightNumber = /^\d+$/.test(rightPart) ? Number.parseInt(rightPart, 10) : Number.NaN
+
+    if (!Number.isNaN(leftNumber) && !Number.isNaN(rightNumber)) {
+      if (leftNumber > rightNumber) return 1
+      if (leftNumber < rightNumber) return -1
+      continue
+    }
+
+    if (leftPart > rightPart) return 1
+    if (leftPart < rightPart) return -1
+  }
+
+  return 0
+}
+
+const hydrateVersionState = (target, payload, fallbackName) => {
+  target.name = pickVersionField(payload, ['name', 'appName', 'title', 'frontendName']) || fallbackName
+  target.version = pickVersionField(payload, ['version', 'appVersion', 'tag', 'buildVersion'])
+
+  if (!target.version) {
+    throw new Error('The version source did not include a version field.')
+  }
+}
+
+const loadFrontendVersion = async () => {
+  if (!process.client) return
+
+  frontendVersionState.loading = true
+  frontendVersionState.error = ''
+  frontendVersionState.hostname = window.location.hostname
+
+  const namedSite = parseCanonicalNamedSiteFromHostname(window.location.hostname)
+  frontendVersionState.npub = parseSourceNpubFromHostname(window.location.hostname)
+  frontendVersionState.siteIdentifier = namedSite?.identifier || ''
+
+  try {
+    const response = await fetch(`${window.location.origin}/version.json`, {
+      headers: {
+        accept: 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error('Unable to load /version.json from this nsite.')
+    }
+
+    hydrateVersionState(frontendVersionState, await response.json(), 'Front end')
+  } catch (error) {
+    frontendVersionState.name = ''
+    frontendVersionState.version = ''
+    frontendVersionState.error = error.message || 'Failed to read deployed front-end version.'
+  } finally {
+    frontendVersionState.loading = false
+  }
+}
+
+const loadGithubVersion = async () => {
+  if (!process.client) return
+
+  githubVersionState.loading = true
+  githubVersionState.error = ''
+
+  try {
+    const response = await fetch(GITHUB_VERSION_URL, {
+      headers: {
+        accept: 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error('Unable to load the GitHub version source.')
+    }
+
+    hydrateVersionState(githubVersionState, await response.json(), 'GitHub front end')
+  } catch (error) {
+    githubVersionState.name = ''
+    githubVersionState.version = ''
+    githubVersionState.error = error.message || 'Failed to read the GitHub version source.'
+  } finally {
+    githubVersionState.loading = false
+  }
+}
+
+const refreshVersionSources = async () => {
+  await Promise.all([
+    loadFrontendVersion(),
+    loadGithubVersion()
+  ])
+}
+
+const updateFrontendFromMuse = async () => {
+  if (!authStore.signer || !authStore.pubkey) return
+
+  updateState.busy = true
+  updateState.error = ''
+  updateState.success = ''
+
+  try {
+    const candidateRelays = uniqRelays([
+      ...cloneCandidateRelays.value,
+      'wss://relay.ditto.pub',
+      'wss://relay.damus.io',
+      'wss://relay.primal.net',
+      'wss://nos.lol'
+    ])
+
+    const [rootSource, portalSource] = await Promise.all([
+      fetchSourceManifest({
+        sourceNpub: fixedMuseNpub,
+        relays: candidateRelays
+      }),
+      fetchSourceManifest({
+        sourceNpub: fixedMuseNpub,
+        relays: candidateRelays,
+        identifier: UPDATE_SOURCE_IDENTIFIER
+      })
+    ])
+
+    const publishRelays = uniqRelays([
+      ...candidateRelays,
+      ...rootSource.manifestRelays,
+      ...portalSource.manifestRelays
+    ])
+
+    await publishClonedManifest({
+      signer: authStore.signer,
+      pubkey: authStore.pubkey,
+      sourceManifest: rootSource.manifest,
+      sourcePubkey: rootSource.sourcePubkey,
+      relays: publishRelays
+    })
+
+    await publishClonedManifest({
+      signer: authStore.signer,
+      pubkey: authStore.pubkey,
+      sourceManifest: portalSource.manifest,
+      sourcePubkey: portalSource.sourcePubkey,
+      relays: publishRelays,
+      identifier: UPDATE_SOURCE_IDENTIFIER
+    })
+
+    updateState.success = `Published updated root and ${UPDATE_SOURCE_IDENTIFIER} manifests from ${fixedMuseNpub}.`
+    await refreshVersionSources()
+  } catch (error) {
+    updateState.error = error.message || 'Failed to publish the updated front-end manifests.'
+  } finally {
+    updateState.busy = false
+  }
+}
 
 const runFetchAll = async () => {
   if (!authStore.pubkey) return
@@ -614,6 +884,8 @@ onMounted(async () => {
   const savedTheme = localStorage.getItem('nb-admin-theme') || 'light'
   applyTheme(savedTheme)
 
+  await refreshVersionSources()
+
   if (authStore.isConnected) {
     await refreshRoutingAndData()
   }
@@ -798,9 +1070,19 @@ onMounted(async () => {
         <div class="admin-panel p-4">
           <h3 class="font-semibold">Version Control</h3>
           <div class="mt-2 flex items-center justify-between gap-3">
-            <p class="text-sm text-[var(--ink-1)]">🎉 Congratulations, you are running the latest version</p>
-            <button class="deploy-primary-btn rounded-lg px-4 py-2 text-sm font-semibold text-white opacity-70 cursor-not-allowed" type="button" disabled>
-              Update to latest version
+            <div>
+              <p class="text-sm text-[var(--ink-1)]">{{ frontendVersionSummary }}</p>
+              <p v-if="frontendVersionMeta" class="mt-1 text-xs admin-muted">{{ frontendVersionMeta }}</p>
+              <p class="mt-1 text-xs admin-muted">{{ githubVersionSummary }}</p>
+              <p v-if="updateStatusMessage" class="mt-1 text-xs" :class="updateState.error ? 'text-red-500' : updateState.success ? 'text-emerald-500' : 'admin-muted'">{{ updateStatusMessage }}</p>
+            </div>
+            <button
+              class="deploy-primary-btn rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
+              type="button"
+              :disabled="!canUpdateFrontend"
+              @click="updateFrontendFromMuse"
+            >
+              {{ updateButtonLabel }}
             </button>
           </div>
         </div>

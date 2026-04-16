@@ -1,4 +1,5 @@
 const now = () => Math.floor(Date.now() / 1000)
+const CLIENT_TAG = ['client', 'Nostr Boutique']
 
 const getTagsByName = (tags = [], key) => tags.filter((tag) => tag[0] === key)
 
@@ -83,7 +84,8 @@ export const buildProductTemplate = (pubkey, draft) => {
   const tags = [
     ['d', draft.d],
     ['title', draft.title],
-    ['price', draft.priceAmount, draft.priceCurrency, draft.priceFrequency || '']
+    ['price', draft.priceAmount, draft.priceCurrency, draft.priceFrequency || ''],
+    ['client', 'Nostr Boutique']
   ]
 
   if (draft.type || draft.format) {
@@ -136,7 +138,8 @@ export const buildOrderStatusTemplate = ({ merchantPubkey, buyerPubkey, orderId,
     ['subject', 'order-info'],
     ['type', '3'],
     ['order', orderId],
-    ['status', status]
+    ['status', status],
+    [...CLIENT_TAG]
   ],
   content
 })
@@ -147,7 +150,8 @@ export const buildShippingUpdateTemplate = ({ merchantPubkey, buyerPubkey, order
     ['subject', 'shipping-info'],
     ['type', '4'],
     ['order', orderId],
-    ['status', status]
+    ['status', status],
+    [...CLIENT_TAG]
   ]
 
   if (tracking) tags.push(['tracking', tracking])
@@ -169,7 +173,8 @@ export const buildPaymentRequestTemplate = ({ merchantPubkey, buyerPubkey, order
     ['subject', 'order-payment'],
     ['type', '2'],
     ['order', orderId],
-    ['amount', amount]
+    ['amount', amount],
+    [...CLIENT_TAG]
   ]
 
   for (const row of paymentRows || []) {

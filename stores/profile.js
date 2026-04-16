@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import { useNostrPool } from '~/composables/useNostrPool'
 
 const now = () => Math.floor(Date.now() / 1000)
+const CLIENT_TAG = ['client', 'Nostr Boutique']
 
 const parseProfileEvent = (event) => {
   const profile = {
@@ -78,7 +79,7 @@ export const useProfileStore = defineStore('profile', () => {
         kind: 0,
         created_at: now(),
         pubkey,
-        tags: [],
+        tags: [[...CLIENT_TAG]],
         content: JSON.stringify({
           name: name.value,
           about: about.value,
