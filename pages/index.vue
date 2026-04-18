@@ -1343,6 +1343,7 @@ onMounted(async () => {
             <div class="mt-3 grid gap-3 md:grid-cols-2">
               <input v-model="profileStore.name" placeholder="Shop name" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
               <input v-model="profileStore.lud16" placeholder="Lightning address (lud16)" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
+              <input v-model="profileStore.paypal" placeholder="PayPal receiver email" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)]" />
             <input v-model="profileStore.picture" placeholder="Logo URL" class="rounded-md border border-[var(--line)] bg-[var(--panel)] px-3 py-2 text-[var(--ink-1)] md:col-span-2" />
             <div class="admin-subpanel border-dashed p-3 md:col-span-2">
               <p class="text-sm font-medium">Upload logo via Blossom</p>

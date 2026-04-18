@@ -11,7 +11,8 @@ const parseProfileEvent = (event) => {
     about: '',
     picture: '',
     lud16: '',
-    website: ''
+    website: '',
+    paypal: ''
   }
 
   try {
@@ -38,6 +39,7 @@ export const useProfileStore = defineStore('profile', () => {
   const picture = ref('')
   const lud16 = ref('')
   const website = ref('')
+  const paypal = ref('')
 
   const hydrate = ({ profile }) => {
     name.value = profile.name || ''
@@ -45,6 +47,7 @@ export const useProfileStore = defineStore('profile', () => {
     picture.value = profile.picture || ''
     lud16.value = profile.lud16 || ''
     website.value = profile.website || ''
+    paypal.value = profile.paypal || ''
   }
 
   const loadProfile = async ({ pubkey, relays }) => {
@@ -85,7 +88,8 @@ export const useProfileStore = defineStore('profile', () => {
           about: about.value,
           picture: picture.value,
           lud16: lud16.value,
-          website: website.value
+          website: website.value,
+          paypal: paypal.value
         })
       }
 
@@ -109,6 +113,7 @@ export const useProfileStore = defineStore('profile', () => {
     picture,
     lud16,
     website,
+    paypal,
     loadProfile,
     publishProfile
   }
