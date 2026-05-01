@@ -10,9 +10,7 @@ const DEFAULT_RELAYS = [
 ]
 
 const DEFAULT_BLOSSOM_SERVERS = [
-  'https://blossom.primal.net',
-  'https://cdn.satellite.earth',
-  'https://nostrcheck.me'
+  'https://blossom.ditto.pub'
 ]
 
 const normalizeUrlList = (rawText) => {

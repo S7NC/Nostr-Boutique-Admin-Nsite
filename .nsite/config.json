@@ -11,8 +11,7 @@
     "wss://nos.lol"
   ],
   "servers": [
-    "https://blossom.primal.net",
-    "https://cdn.satellite.earth"
+    "https://blossom.ditto.pub"
   ],
   "profile": {
     "name": "Nostr Boutique Admin",

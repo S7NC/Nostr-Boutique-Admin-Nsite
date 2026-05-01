@@ -68,15 +68,23 @@ const createUploadToken = async ({ signer, hashHex, serverDomain }) => {
 
 export const useBlossom = () => {
   const checkUploadRequirements = async ({ serverUrl, hashHex, size, type, authHeader }) => {
-    const response = await fetch(`${serverUrl}/upload`, {
-      method: 'HEAD',
-      headers: buildUploadHeaders({ hashHex, size, type, authHeader })
-    })
+    try {
+      const response = await fetch(`${serverUrl}/upload`, {
+        method: 'HEAD',
+        headers: buildUploadHeaders({ hashHex, size, type, authHeader })
+      })
 
-    return {
-      ok: response.ok,
-      status: response.status,
-      reason: response.headers.get('X-Reason') || ''
+      return {
+        ok: response.ok,
+        status: response.status,
+        reason: response.headers.get('X-Reason') || ''
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        status: 0,
+        reason: error?.message || 'Upload requirements probe failed'
+      }
     }
   }
 
@@ -97,7 +105,9 @@ export const useBlossom = () => {
       authHeader
     })
 
-    if (!requirements.ok && requirements.status !== 402) {
+    const canProceedWithoutRequirementProbe = requirements.status === 0 || requirements.status === 404 || requirements.status === 405
+
+    if (!requirements.ok && requirements.status !== 402 && !canProceedWithoutRequirementProbe) {
       throw new Error(requirements.reason || `Upload requirements failed (${requirements.status})`)
     }
 
