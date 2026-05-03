@@ -1652,6 +1652,8 @@ onMounted(async () => {
       </div>
     </div>
 
+    <div class="pb-6 text-center text-xs admin-muted">V0.1</div>
+
     <NsiteCloneFab :fallback-npub="cloneSourceNpub" :candidate-relays="cloneCandidateRelays" />
   </div>
 </template>
