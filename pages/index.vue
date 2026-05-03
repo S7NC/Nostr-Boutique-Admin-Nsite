@@ -585,6 +585,22 @@ const editListing = (product) => {
   listingsView.value = 'new'
 }
 
+const deleteListing = async (product) => {
+  if (!authStore.signer || !authStore.pubkey) return
+
+  const accepted = window.confirm(`Delete listing "${product.title}" (${product.d})? This will publish visibility=hidden first, then a kind:5 deletion event.`)
+  if (!accepted) return
+
+  await listingsStore.deleteProduct({
+    signer: authStore.signer,
+    pubkey: authStore.pubkey,
+    relays: relayStore.effectiveOutboxRelays,
+    product,
+    signAuthChallenge: authStore.signAuthChallenge,
+    reason: 'Merchant requested product removal'
+  })
+}
+
 const removeDraftImage = (index) => {
   listingsStore.removeDraftImage(index)
 }
@@ -1109,6 +1125,13 @@ onMounted(async () => {
                     <div class="flex items-center gap-3">
                       <div class="text-xs admin-muted">images: {{ product.images.length }}</div>
                       <button class="admin-action px-3 py-1 text-xs" @click="editListing(product)">Edit</button>
+                      <button
+                        :disabled="listingsStore.publishing"
+                        class="rounded border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        @click="deleteListing(product)"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
                 </div>

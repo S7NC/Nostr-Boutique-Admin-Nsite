@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { parseProductEvent, buildProductTemplate } from '~/composables/useMarketProtocol'
+import { parseProductEvent, buildProductTemplate, parseDeletionEvent, buildProductDeletionTemplate, getProductAddress } from '~/composables/useMarketProtocol'
 import { useNostrPool } from '~/composables/useNostrPool'
 
 const emptyDraft = () => ({
@@ -120,15 +120,55 @@ export const useListingsStore = defineStore('listings', () => {
 
     try {
       const events = await queryEvents(relays, {
-        kinds: [30402],
+        kinds: [30402, 5],
         authors: [pubkey],
         limit: 300
       })
 
-      products.value = events
+      const parsedProducts = events
+        .filter((event) => event.kind === 30402)
         .map(parseProductEvent)
         .filter((item) => item.d)
-        .sort((a, b) => b.createdAt - a.createdAt)
+
+      const deletionEvents = events
+        .filter((event) => event.kind === 5)
+        .map(parseDeletionEvent)
+
+      const deletedAddresses = new Set()
+      const deletedEventIds = new Set()
+      for (const deletion of deletionEvents) {
+        for (const address of deletion.addresses) {
+          if (address.startsWith('30402:')) deletedAddresses.add(address)
+        }
+        for (const eventId of deletion.eventIds) {
+          deletedEventIds.add(eventId)
+        }
+      }
+
+      const latestByD = new Map()
+      for (const product of parsedProducts) {
+        const existing = latestByD.get(product.d)
+        if (!existing) {
+          latestByD.set(product.d, product)
+          continue
+        }
+
+        if (product.createdAt > existing.createdAt) {
+          latestByD.set(product.d, product)
+          continue
+        }
+
+        if (product.createdAt === existing.createdAt && product.id > existing.id) {
+          latestByD.set(product.d, product)
+        }
+      }
+
+      products.value = Array.from(latestByD.values())
+        .filter((product) => {
+          const address = getProductAddress(pubkey, product.d)
+          return !deletedAddresses.has(address) && !deletedEventIds.has(product.id)
+        })
+        .sort((a, b) => b.createdAt - a.createdAt || b.id.localeCompare(a.id))
     } catch (err) {
       error.value = err.message || 'Failed to load listings'
     } finally {
@@ -155,6 +195,52 @@ export const useListingsStore = defineStore('listings', () => {
     }
   }
 
+  const deleteProduct = async ({ signer, pubkey, relays, product, signAuthChallenge, reason = '', publishSoftHide = true }) => {
+    publishing.value = true
+    error.value = ''
+
+    try {
+      if (publishSoftHide) {
+        const hiddenTemplate = buildProductTemplate(pubkey, {
+          d: product.d,
+          title: product.title,
+          summary: product.summary || '',
+          content: product.content || '',
+          type: product.type?.product || 'simple',
+          format: product.type?.format || 'physical',
+          visibility: 'hidden',
+          stock: String(product.stock ?? 0),
+          priceAmount: product.price?.amount || '',
+          priceCurrency: product.price?.currency || 'USD',
+          priceFrequency: product.price?.frequency || '',
+          images: product.images || [],
+          categories: product.categories || [],
+          specs: product.specs || [],
+          collections: product.collections || [],
+          shippingOptions: product.shippingOptions || []
+        })
+        const signedHidden = await signer.signEvent(hiddenTemplate)
+        await publishEvent(relays, signedHidden, signAuthChallenge)
+      }
+
+      const template = buildProductDeletionTemplate({
+        merchantPubkey: pubkey,
+        productId: product.id,
+        dTag: product.d,
+        reason
+      })
+      const signed = await signer.signEvent(template)
+      await publishEvent(relays, signed, signAuthChallenge)
+      await loadProducts({ pubkey, relays })
+      return signed
+    } catch (err) {
+      error.value = err.message || 'Failed to delete listing'
+      throw err
+    } finally {
+      publishing.value = false
+    }
+  }
+
   return {
     loading,
     publishing,
@@ -170,6 +256,7 @@ export const useListingsStore = defineStore('listings', () => {
     addImageToDraft,
     removeDraftImage,
     loadProducts,
-    publishDraft
+    publishDraft,
+    deleteProduct
   }
 })

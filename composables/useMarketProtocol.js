@@ -10,6 +10,8 @@ const getFirstTagValue = (tags = [], key, fallback = '') => {
 
 const getAddressTag = (kind, pubkey, identifier) => `${kind}:${pubkey}:${identifier}`
 
+const getTagValues = (tags = [], key) => tags.filter((tag) => tag[0] === key).map((tag) => tag[1]).filter(Boolean)
+
 export const parseProductEvent = (event) => {
   const tags = event.tags || []
   const priceTag = tags.find((tag) => tag[0] === 'price') || []
@@ -129,6 +131,34 @@ export const buildProductTemplate = (pubkey, draft) => {
   }
 }
 
+export const parseDeletionEvent = (event) => {
+  const tags = event.tags || []
+  return {
+    id: event.id,
+    pubkey: event.pubkey,
+    createdAt: event.created_at,
+    eventIds: getTagValues(tags, 'e'),
+    addresses: getTagValues(tags, 'a')
+  }
+}
+
+export const buildProductDeletionTemplate = ({ merchantPubkey, productId, dTag, reason = '' }) => {
+  const tags = [
+    ['a', getAddressTag(30402, merchantPubkey, dTag)],
+    [...CLIENT_TAG]
+  ]
+
+  if (productId) tags.push(['e', productId])
+
+  return {
+    kind: 5,
+    created_at: now(),
+    pubkey: merchantPubkey,
+    tags,
+    content: reason
+  }
+}
+
 export const buildOrderStatusTemplate = ({ merchantPubkey, buyerPubkey, orderId, status, content = '' }) => ({
   kind: 16,
   created_at: now(),
@@ -196,3 +226,4 @@ export const buildPaymentRequestTemplate = ({ merchantPubkey, buyerPubkey, order
 
 export const getMerchantCollectionAddress = (merchantPubkey, dTag) => getAddressTag(30405, merchantPubkey, dTag)
 export const getShippingOptionAddress = (merchantPubkey, dTag) => getAddressTag(30406, merchantPubkey, dTag)
+export const getProductAddress = (merchantPubkey, dTag) => getAddressTag(30402, merchantPubkey, dTag)
